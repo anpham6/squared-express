@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch Express",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "npm: debug",
+      "runtimeArgs": [
+        "-r",
+        "ts-node/register"
+      ],
+      "args": [
+        "${workspaceFolder}/debug/serve.js",
+        "--access-all"
+      ]
+    }
+  ]
+}

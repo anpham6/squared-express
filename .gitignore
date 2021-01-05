@@ -1,4 +1,5 @@
 build/
+debug/
 node_modules/
 tmp/
 *.code-workspace
