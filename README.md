@@ -1,4 +1,4 @@
-# squared-express 0.1
+# squared-express 0.2
 
 ```xml
 <!-- NOTE: cd ./dist -->
@@ -7,6 +7,17 @@
 
 2. node serve.js [--help]
 ```
+
+## Archiving
+
+Supported formats:
+
+* zip
+* 7z
+* gz
+* tar
+
+## Routing
 
 Simple routing and also middleware can be loaded using locally evaluated functions in case you need additional functionality. It is not recommended you use this package in production environments when custom routes are defined.
 
@@ -49,6 +60,16 @@ function () {
     const cookieParser = require('cookie-parser'); // npm i cookie-parser
     return cookieParser();
 }
+```
+
+## API Routes
+
+Version 1.0.0
+```xml
+/api/v1/assets/copy
+/api/v1/assets/archive
+/api/v1/browser/download
+/api/v1/loader/json
 ```
 
 ### LICENSE

@@ -12,11 +12,14 @@ import body_parser = require('body-parser');
 import request = require('request');
 import uuid = require('uuid');
 import archiver = require('archiver');
-import _7z = require('7zip-min');
+import _7z = require('node-7z');
+import _7z_bin = require('7zip-bin');
 import yaml = require('js-yaml');
 import chalk = require('chalk');
 
 import FileManager = require('@squared-functions/file-manager');
+
+const BIN_7ZA = _7z_bin.path7za;
 
 type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
 
@@ -378,68 +381,81 @@ app.post('/api/v1/assets/archive', (req, res) => {
     }
     let append_to = query.append_to as string,
         zipname = '',
-        format: archiver.Format,
-        formatGzip: Undef<boolean>;
+        use7z = false,
+        useGzip = false,
+        format = (query.format as string || 'zip').toLowerCase();
     if (path.isAbsolute(append_to)) {
         append_to = path.normalize(append_to);
     }
-    switch (query.format) {
+    switch (format) {
+        case '7z':
+            use7z = true;
+            break;
         case 'gz':
         case 'tgz':
-            formatGzip = true;
+            useGzip = true;
         case 'tar':
-            format = 'tar';
             break;
         default:
             format = 'zip';
             break;
     }
-    const resumeThread = (unzip_to?: string) => {
-        const archive = archiver(format, { zlib: { level: FileManager.moduleCompress().gzipLevel } });
+    const resumeThread = () => {
+        zipname = path.join(dirname_zip, (query.filename || zipname || uuid.v4()) + '.' + format);
         const manager = new FileManager(
             dirname,
             req.body as RequestBody,
             () => {
-                archive.directory(dirname, false);
-                archive.finalize();
+                const success = manager.files.size > 0;
+                const response: ResponseData = {
+                    success,
+                    zipname,
+                    files: Array.from(manager.files)
+                };
+                const complete = (bytes: number) => {
+                    if (bytes) {
+                        response.bytes = bytes;
+                    }
+                    res.json(response);
+                    manager.formatMessage(Node.logType.NODE, 'WRITE', [path.basename(zipname), bytes + ' bytes']);
+                };
+                if (!use7z) {
+                    const archive = archiver(format as archiver.Format, { zlib: { level: FileManager.moduleCompress().gzipLevel } });
+                    const output = fs.createWriteStream(zipname);
+                    output
+                        .on('close', () => {
+                            if (useGzip) {
+                                const gz = format === 'tgz' ? zipname.replace(/tar$/, 'tgz') : zipname + '.gz';
+                                FileManager.moduleCompress().createWriteStreamAsGzip(zipname, gz)
+                                    .on('finish', () => {
+                                        zipname = gz;
+                                        response.zipname = gz;
+                                        complete(FileManager.getFileSize(gz));
+                                    })
+                                    .on('error', err => {
+                                        response.success = false;
+                                        manager.writeFail(['Unable to compress file', gz], err);
+                                        res.json(response);
+                                    });
+                            }
+                            else {
+                                complete(archive.pointer());
+                            }
+                        })
+                        .on('error', err => Node.writeFail(['Unable to create archive', format], err));
+                    archive.pipe(output);
+                    archive.directory(dirname, false);
+                    archive.finalize();
+                }
+                else {
+                    _7z.add(zipname, dirname + path.sep + '*', { $bin: BIN_7ZA, recursive: true })
+                        .on('end', () => complete(FileManager.getFileSize(zipname)))
+                        .on('error', err => Node.writeFail(['Unable to create archive', format], err));
+                }
             }
         );
         installModules(manager, query as StringMap);
-        zipname = path.join(dirname_zip, (query.filename || zipname || uuid.v4()) + '.' + format);
-        const output = fs.createWriteStream(zipname);
-        output.on('close', () => {
-            const success = manager.files.size > 0;
-            const response: ResponseData = {
-                success,
-                zipname,
-                files: Array.from(manager.files),
-                bytes: archive.pointer()
-            };
-            if (formatGzip && success) {
-                const gz = query.format === 'tgz' ? zipname.replace(/tar$/, 'tgz') : zipname + '.gz';
-                FileManager.moduleCompress().createWriteStreamAsGzip(zipname, gz)
-                    .on('finish', () => {
-                        response.zipname = gz;
-                        response.bytes = FileManager.getFileSize(gz);
-                        manager.formatMessage(Node.logType.NODE, 'WRITE', [path.basename(gz), response.bytes + ' bytes'], '');
-                        res.json(response);
-                    })
-                    .on('error', err => {
-                        response.success = false;
-                        manager.writeFail(['Unable to compress file', gz], err);
-                        res.json(response);
-                    });
-            }
-            else {
-                res.json(response);
-                manager.formatMessage(Node.logType.NODE, 'WRITE', [path.basename(zipname), response.bytes + ' bytes'], '');
-            }
-        });
-        archive.pipe(output);
         try {
-            if (unzip_to) {
-                archive.directory(unzip_to, false);
-            }
             manager.processAssets();
         }
         catch (err) {
@@ -452,16 +468,12 @@ app.post('/api/v1/assets/archive', (req, res) => {
             const zippath = path.join(dirname_zip, match[0]);
             const decompress = () => {
                 zipname = match[1];
-                const unzip_to = path.join(dirname_zip, zipname);
-                _7z.unpack(zippath, unzip_to, err => {
-                    if (!err) {
-                        resumeThread(unzip_to);
-                    }
-                    else {
+                _7z.extractFull(zippath, dirname, { $bin: BIN_7ZA, recursive: true })
+                    .on('end', resumeThread)
+                    .on('error', err => {
                         Node.writeFail(['Unable to decompress file', zippath], err);
                         resumeThread();
-                    }
-                });
+                    });
             };
             try {
                 if (Node.isFileURI(append_to)) {
