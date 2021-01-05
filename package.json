@@ -1,12 +1,12 @@
 {
   "name": "squared-express",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Express server for use with squared.",
   "main": "dist/serve.js",
   "scripts": {
     "build": "rimraf build/* && eslint ./src/**/*.ts && tsc && rollup --silent -c rollup.config.js",
     "debug": "tsc --inlineSourceMap -outDir ./debug",
-    "serve": "npm run debug && cd ./debug && node serve.js --access-all",
+    "serve": "tsc --outDir ./debug && cd ./debug && node serve.js --access-all",
     "dev": "tsc && copyfiles -a ./build/* -u 1 ../squared",
     "prod": "npm run build && copyfiles -a ./dist/* -u 1 ../squared"
   },
@@ -65,6 +65,7 @@
     "eslint": "^7.17.0",
     "gulp": "^4.0.2",
     "ibm-cos-sdk": "^1.9.0",
+    "imagemin-pngquant": "^9.0.1",
     "oracledb": "^5.1.0",
     "postcss": "^8.2.2",
     "posthtml": "^0.15.1",

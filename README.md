@@ -1,9 +1,11 @@
 # squared-express 0.1
 
 ```xml
-1. dist/squared.settings.[json|yml] (configure)
+<!-- NOTE: cd ./dist -->
 
-2. node dist/serve.js [--help]
+1. squared.settings.[json|yml] (configure)
+
+2. node serve.js [--help]
 ```
 
 Simple routing and also middleware can be loaded using locally evaluated functions in case you need additional functionality. It is not recommended you use this package in production environments when custom routes are defined.
