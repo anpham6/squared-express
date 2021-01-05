@@ -1,0 +1,9 @@
+.vscode/
+build/
+src/
+tmp/
+.eslint*
+.git*
+*.code-workspace
+rollup*
+tsconfig.*

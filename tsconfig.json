@@ -1,0 +1,13 @@
+{
+  "extends": "../squared/tsconfig.json",
+  "compilerOptions": {
+    "target": "es2017",
+    "module": "CommonJS",
+    "outDir": "./build",
+    "lib": ["dom", "es2017"]
+  },
+  "include": [
+    "src/serve.ts"
+  ],
+  "exclude": []
+}
