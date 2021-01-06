@@ -38,7 +38,8 @@
   "compress": {
     "gzip_level": 9,
     "brotli_quality": 11,
-    "tinify_api_key": ""
+    "tinify_api_key": "",
+    "7za_bin": ""
   },
   "image": {
     "command": "@squared-functions/image/jimp"

@@ -8,7 +8,8 @@
     "debug": "tsc --inlineSourceMap -outDir ./debug",
     "serve": "tsc --outDir ./debug && cd ./debug && node serve.js --access-all",
     "dev": "tsc && copyfiles -a ./build/* -u 1 ../squared",
-    "prod": "npm run build && copyfiles -a ./dist/* -u 1 ../squared"
+    "prod": "npm run build && copyfiles -a ./dist/* -u 1 ../squared",
+    "clean": "rimraf build/* && rimraf tmp/* && rimraf debug/tmp/*"
   },
   "repository": {
     "type": "git",
@@ -25,7 +26,6 @@
   "homepage": "https://github.com/anpham6/squared-express#readme",
   "dependencies": {
     "@squared-functions/file-manager": "^0.9.10",
-    "7zip-bin": "^5.0.3",
     "archiver": "^5.1.0",
     "chalk": "^4.1.0",
     "cors": "^2.8.5",

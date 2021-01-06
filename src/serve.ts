@@ -13,13 +13,10 @@ import request = require('request');
 import uuid = require('uuid');
 import archiver = require('archiver');
 import _7z = require('node-7z');
-import _7z_bin = require('7zip-bin');
 import yaml = require('js-yaml');
 import chalk = require('chalk');
 
 import FileManager = require('@squared-functions/file-manager');
-
-const BIN_7ZA = _7z_bin.path7za;
 
 type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
 
@@ -33,11 +30,16 @@ interface RoutingModule {
     [key: string]: Route[];
 }
 
+interface CompressModule extends ExtendedSettings.CompressModule {
+    "7za_bin"?: string;
+}
+
 interface Settings extends ISettings {
     cors?: CorsOptions;
     env?: string;
     port?: StringMap;
     routing?: RoutingModule;
+    compress?: CompressModule;
     request_post_limit?: string;
 }
 
@@ -50,7 +52,8 @@ let Image: Undef<ImageConstructor>,
     chromeModule: Undef<ExtendedSettings.ChromeModule>,
     gulpModule: Undef<ExtendedSettings.GulpModule>,
     cloudModule: Undef<ExtendedSettings.CloudModule>,
-    compressModule: Undef<ExtendedSettings.CompressModule>,
+    compressModule: Undef<CompressModule>,
+    bin7za: Undef<string>,
     watchInterval: Undef<number>;
 
 function installModules(manager: IFileManager, query: StringMap) {
@@ -76,6 +79,8 @@ function installModules(manager: IFileManager, query: StringMap) {
         manager.install('watch', watchInterval);
     }
 }
+
+const writeFail7z = () => Node.formatMessage(Node.logType.NODE, 'ARCHIVE', ['Install required? [npm i 7zip-bin]', '7z'], 'Binary not found', { titleColor: 'yellow' });
 
 {
     const argv = yargs
@@ -182,6 +187,21 @@ function installModules(manager: IFileManager, query: StringMap) {
         settings = fs.existsSync('./squared.settings.yml') && yaml.load(fs.readFileSync(path.resolve('./squared.settings.yml'), 'utf8')) as Settings || require('./squared.settings.json');
         ({ compress: compressModule, cloud: cloudModule, gulp: gulpModule, chrome: chromeModule } = settings);
         FileManager.loadSettings(settings, ignorePermissions);
+
+        if (compressModule) {
+            const bin = compressModule['7za_bin'];
+            if (bin && fs.existsSync(bin)) {
+                bin7za = bin;
+            }
+            else {
+                try {
+                    const bin7zip = require('7zip-bin');
+                    bin7za = bin7zip.path7za as string;
+                }
+                catch {
+                }
+            }
+        }
 
         Image = require(settings.image?.command || '@squared-functions/image/jimp');
     }
@@ -389,7 +409,13 @@ app.post('/api/v1/assets/archive', (req, res) => {
     }
     switch (format) {
         case '7z':
-            use7z = true;
+            if (bin7za) {
+                use7z = true;
+            }
+            else {
+                writeFail7z();
+                format = 'zip';
+            }
             break;
         case 'gz':
         case 'tgz':
@@ -448,7 +474,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                     archive.finalize();
                 }
                 else {
-                    _7z.add(zipname, dirname + path.sep + '*', { $bin: BIN_7ZA, recursive: true })
+                    _7z.add(zipname, dirname + path.sep + '*', { $bin: bin7za, recursive: true })
                         .on('end', () => complete(FileManager.getFileSize(zipname)))
                         .on('error', err => Node.writeFail(['Unable to create archive', format], err));
                 }
@@ -463,55 +489,60 @@ app.post('/api/v1/assets/archive', (req, res) => {
         }
     };
     if (append_to) {
-        const match = /([^/\\]+)\.\w+?$/i.exec(append_to);
-        if (match) {
-            const zippath = path.join(dirname_zip, match[0]);
-            const decompress = () => {
-                zipname = match[1];
-                _7z.extractFull(zippath, dirname, { $bin: BIN_7ZA, recursive: true })
-                    .on('end', resumeThread)
-                    .on('error', err => {
-                        Node.writeFail(['Unable to decompress file', zippath], err);
-                        resumeThread();
-                    });
-            };
-            try {
-                if (Node.isFileURI(append_to)) {
-                    const stream = fs.createWriteStream(zippath);
-                    stream.on('finish', decompress);
-                    request(append_to)
-                        .on('response', response => {
-                            const statusCode = response.statusCode;
-                            if (statusCode >= 300) {
-                                Node.writeFail(['Unable to download file', append_to], statusCode + ' ' + response.statusMessage);
-                            }
-                        })
-                        .on('error', () => resumeThread())
-                        .pipe(stream);
-                    return;
-                }
-                else if (fs.existsSync(append_to)) {
-                    if (Node.isFileUNC(append_to)) {
-                        if (!Node.hasUNCRead()) {
-                            res.json({ success: false, error: { hint: 'OPTION: --unc-read', message: 'Reading from UNC shares is not enabled.' } } as ResponseData);
-                            return;
-                        }
-                    }
-                    else if (!Node.hasDiskRead() && path.isAbsolute(append_to)) {
-                        res.json({ success: false, error: { hint: 'OPTION: --disk-read', message: 'Reading from disk is not enabled.' } } as ResponseData);
+        if (bin7za) {
+            const match = /([^/\\]+)\.\w+?$/i.exec(append_to);
+            if (match) {
+                const zippath = path.join(dirname_zip, match[0]);
+                const decompress = () => {
+                    zipname = match[1];
+                    _7z.extractFull(zippath, dirname, { $bin: bin7za, recursive: true })
+                        .on('end', resumeThread)
+                        .on('error', err => {
+                            Node.writeFail(['Unable to decompress file', zippath], err);
+                            resumeThread();
+                        });
+                };
+                try {
+                    if (Node.isFileURI(append_to)) {
+                        const stream = fs.createWriteStream(zippath);
+                        stream.on('finish', decompress);
+                        request(append_to)
+                            .on('response', response => {
+                                const statusCode = response.statusCode;
+                                if (statusCode >= 300) {
+                                    Node.writeFail(['Unable to download file', append_to], statusCode + ' ' + response.statusMessage);
+                                }
+                            })
+                            .on('error', () => resumeThread())
+                            .pipe(stream);
                         return;
                     }
-                    fs.copyFile(append_to, zippath, decompress);
-                    return;
+                    else if (fs.existsSync(append_to)) {
+                        if (Node.isFileUNC(append_to)) {
+                            if (!Node.hasUNCRead()) {
+                                res.json({ success: false, error: { hint: 'OPTION: --unc-read', message: 'Reading from UNC shares is not enabled.' } } as ResponseData);
+                                return;
+                            }
+                        }
+                        else if (!Node.hasDiskRead() && path.isAbsolute(append_to)) {
+                            res.json({ success: false, error: { hint: 'OPTION: --disk-read', message: 'Reading from disk is not enabled.' } } as ResponseData);
+                            return;
+                        }
+                        fs.copyFile(append_to, zippath, decompress);
+                        return;
+                    }
+                    Node.writeFail('Archive not found', append_to);
                 }
-                Node.writeFail('Archive not found', append_to);
+                catch (err) {
+                    Node.writeFail(zippath, err);
+                }
             }
-            catch (err) {
-                Node.writeFail(zippath, err);
+            else {
+                Node.writeFail('Invalid archive format', append_to);
             }
         }
         else {
-            Node.writeFail('Invalid archive format', append_to);
+            writeFail7z();
         }
     }
     resumeThread();
