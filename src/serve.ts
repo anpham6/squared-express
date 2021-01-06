@@ -1,4 +1,4 @@
-import type { Arguments, ExtendedSettings, IFileManager, Settings as ISettings, ImageConstructor, RequestBody } from '@squared-functions/types';
+import type { ExtendedSettings, IFileManager, Settings as ISettings, ImageConstructor, RequestBody } from '@squared-functions/types';
 import type { ResponseData } from '@squared-functions/types/lib/squared';
 import type { CorsOptions } from 'cors';
 import type { IRoute } from 'express';
@@ -18,12 +18,13 @@ import chalk = require('chalk');
 
 import FileManager = require('@squared-functions/file-manager');
 
-type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
-
-interface Route extends Partial<RouteHandler> {
-    mount?: string;
-    path?: string;
-    handler?: string | string[];
+interface Settings extends ISettings {
+    env?: string;
+    port?: StringMap;
+    routing?: RoutingModule;
+    cors?: CorsOptions;
+    request_post_limit?: string;
+    compress?: CompressModule;
 }
 
 interface RoutingModule {
@@ -34,14 +35,26 @@ interface CompressModule extends ExtendedSettings.CompressModule {
     "7za_bin"?: string;
 }
 
-interface Settings extends ISettings {
-    cors?: CorsOptions;
+interface YargsArgv {
+    accessAll?: boolean;
+    accessDisk?: boolean;
+    accessUnc?: boolean;
+    diskRead?: boolean;
+    diskWrite?: boolean;
+    uncRead?: boolean;
+    uncWrite?: boolean;
     env?: string;
-    port?: StringMap;
-    routing?: RoutingModule;
-    compress?: CompressModule;
-    request_post_limit?: string;
+    port?: number;
+    cors?: string;
 }
+
+interface Route extends Partial<RouteHandler> {
+    mount?: string;
+    path?: string;
+    handler?: string | string[];
+}
+
+type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
 
 const app = express();
 app.use(body_parser.urlencoded({ extended: true }));
@@ -80,7 +93,29 @@ function installModules(manager: IFileManager, query: StringMap) {
     }
 }
 
-const writeFail7z = () => Node.formatMessage(Node.logType.NODE, 'ARCHIVE', ['Install required? [npm i 7zip-bin]', '7z'], 'Binary not found', { titleColor: 'yellow' });
+function writeFail(name: string, hint = '', err?: unknown) {
+    switch (name) {
+        case '7z':
+            Node.formatMessage(Node.logType.NODE, 'ARCHIVE', ['Install required? [npm i 7zip-bin]', '7z'], 'Binary not found', { titleColor: 'yellow' });
+            break;
+        case 'archive':
+            Node.writeFail(['Unable to create archive', hint], err);
+            break;
+        case 'download':
+            Node.writeFail(['Unable to download file', hint], err);
+            break;
+    }
+}
+
+function getResponseError(hint: string, message: Error | string) {
+    return {
+        success: false,
+        error: {
+            hint,
+            message: message.toString()
+        }
+    } as ResponseData;
+}
 
 {
     const argv = yargs
@@ -138,7 +173,7 @@ const writeFail7z = () => Node.formatMessage(Node.logType.NODE, 'ARCHIVE', ['Ins
             nargs: 1
         })
         .epilogue('For more information and source: https://github.com/anpham6/squared')
-        .argv as Arguments;
+        .argv as YargsArgv;
 
     let { NODE_ENV: ENV, PORT } = process.env,
         ignorePermissions = false;
@@ -375,7 +410,7 @@ app.post('/api/v1/assets/copy', (req, res) => {
             manager.processAssets(query.empty === '1');
         }
         catch (err) {
-            res.json({ success: false, error: { hint: 'FILE: Unknown', message: (err as Error).toString() } } as ResponseData);
+            res.json(getResponseError('FILE: Unknown', (err as Error).toString()));
         }
     }
 });
@@ -383,7 +418,7 @@ app.post('/api/v1/assets/copy', (req, res) => {
 app.post('/api/v1/assets/archive', (req, res) => {
     const query = req.query;
     const copy_to = query.to && path.normalize(query.to as string);
-    const dirname = path.join(__dirname, 'tmp' + path.sep + uuid.v4());
+    const dirname = path.join(__dirname, 'tmp', uuid.v4());
     let dirname_zip: string;
     try {
         fs.mkdirpSync(dirname);
@@ -396,7 +431,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
         }
     }
     catch (err) {
-        res.json({ success: false, error: { hint: `DIRECTORY: ${dirname}`, message: (err as Error).toString() } } as ResponseData);
+        res.json(getResponseError(`DIRECTORY: ${dirname}`, (err as Error).toString()));
         return;
     }
     let append_to = query.append_to as string,
@@ -413,7 +448,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                 use7z = true;
             }
             else {
-                writeFail7z();
+                writeFail('7z');
                 format = 'zip';
             }
             break;
@@ -460,7 +495,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                                     })
                                     .on('error', err => {
                                         response.success = false;
-                                        manager.writeFail(['Unable to compress file', gz], err);
+                                        writeFail('archive', format, err);
                                         res.json(response);
                                     });
                             }
@@ -468,7 +503,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                                 complete(archive.pointer());
                             }
                         })
-                        .on('error', err => Node.writeFail(['Unable to create archive', format], err));
+                        .on('error', err => writeFail('archive', format, err));
                     archive.pipe(output);
                     archive.directory(dirname, false);
                     archive.finalize();
@@ -476,7 +511,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                 else {
                     _7z.add(zipname, dirname + path.sep + '*', { $bin: bin7za, recursive: true })
                         .on('end', () => complete(FileManager.getFileSize(zipname)))
-                        .on('error', err => Node.writeFail(['Unable to create archive', format], err));
+                        .on('error', err => writeFail('archive', format, err));
                 }
             }
         );
@@ -485,7 +520,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
             manager.processAssets();
         }
         catch (err) {
-            res.json({ success: false, error: { hint: 'FILE: Unknown', message: (err as Error).toString() } } as ResponseData);
+            res.json(getResponseError('FILE: Unknown', (err as Error).toString()));
         }
     };
     if (append_to) {
@@ -506,26 +541,33 @@ app.post('/api/v1/assets/archive', (req, res) => {
                     if (Node.isFileURI(append_to)) {
                         const stream = fs.createWriteStream(zippath);
                         stream.on('finish', decompress);
+                        let error: Undef<boolean>;
                         request(append_to)
                             .on('response', response => {
                                 const statusCode = response.statusCode;
                                 if (statusCode >= 300) {
-                                    Node.writeFail(['Unable to download file', append_to], statusCode + ' ' + response.statusMessage);
+                                    writeFail('download', append_to, statusCode + ' ' + response.statusMessage);
+                                    error = true;
                                 }
                             })
-                            .on('error', () => resumeThread())
+                            .on('error', err => {
+                                if (!error) {
+                                    writeFail('download', append_to, err);
+                                }
+                                resumeThread();
+                            })
                             .pipe(stream);
                         return;
                     }
                     else if (fs.existsSync(append_to)) {
                         if (Node.isFileUNC(append_to)) {
                             if (!Node.hasUNCRead()) {
-                                res.json({ success: false, error: { hint: 'OPTION: --unc-read', message: 'Reading from UNC shares is not enabled.' } } as ResponseData);
+                                res.json(getResponseError('OPTION: --unc-read', 'Reading from UNC shares is not enabled.'));
                                 return;
                             }
                         }
                         else if (!Node.hasDiskRead() && path.isAbsolute(append_to)) {
-                            res.json({ success: false, error: { hint: 'OPTION: --disk-read', message: 'Reading from disk is not enabled.' } } as ResponseData);
+                            res.json(getResponseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
                             return;
                         }
                         fs.copyFile(append_to, zippath, decompress);
@@ -542,7 +584,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
             }
         }
         else {
-            writeFail7z();
+            writeFail('7z');
         }
     }
     resumeThread();
@@ -561,8 +603,8 @@ app.get('/api/v1/browser/download', (req, res) => {
 
 app.get('/api/v1/loader/json', (req, res) => {
     const uri = req.query.uri as string;
-    let valid = true;
     if (uri) {
+        let valid = true;
         const loadContent = (message: unknown, body: string) => {
             let data: Undef<string | object>;
             if (!message) {
@@ -572,8 +614,8 @@ app.get('/api/v1/loader/json', (req, res) => {
                         case '.js':
                             data = JSON.parse(body);
                             break;
-                        case '.yaml':
                         case '.yml':
+                        case '.yaml':
                             data = yaml.load(body);
                             break;
                     }
@@ -586,7 +628,7 @@ app.get('/api/v1/loader/json', (req, res) => {
                 res.json({ success: true, data } as ResponseData);
             }
             else {
-                res.json({ success: false, error: { hint: `FILE: Unable to download (${uri})`, message } } as ResponseData);
+                res.json(getResponseError(`FILE: Unable to download (${uri})`, message as Error));
             }
         };
         if (Node.isFileURI(uri)) {
@@ -594,19 +636,20 @@ app.get('/api/v1/loader/json', (req, res) => {
         }
         else if (fs.existsSync(uri)) {
             if (Node.isFileUNC(uri)) {
-                if (!Node.hasUNCRead()) {
-                    valid = false;
-                }
+                valid = Node.hasUNCRead();
             }
-            else if (!Node.hasDiskRead()) {
-                valid = false;
+            else {
+                valid = Node.hasDiskRead();
             }
             if (valid) {
                 fs.readFile(uri, 'utf8', (err, data) => loadContent(err, data));
             }
         }
-    }
-    if (!valid) {
-        res.json({ success: false, error: { hint: 'FILE: Unknown', message: uri } } as ResponseData);
+        else {
+            valid = false;
+        }
+        if (!valid) {
+            res.json(getResponseError('FILE: Unknown', uri));
+        }
     }
 });
