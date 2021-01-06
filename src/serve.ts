@@ -56,7 +56,8 @@ interface Route extends Partial<RouteHandler> {
 
 type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
 
-const DOWNLOAD_CACHE: StringMap = {};
+const JSON_CACHE: ObjectMap<PlainObject> = {};
+const BLOB_CACHE: StringMap = {};
 
 const app = express();
 app.use(body_parser.urlencoded({ extended: true }));
@@ -459,18 +460,20 @@ app.post('/api/v1/assets/archive', (req, res) => {
             dirname,
             req.body as RequestBody,
             () => {
-                const success = manager.files.size > 0;
-                const downloadKey = success ? uuid.v4() : '';
-                const response: ResponseData & { downloadKey: string } = {
-                    success,
+                const response: ResponseData = {
+                    success: manager.files.size > 0,
                     zipname,
-                    downloadKey,
                     files: Array.from(manager.files)
                 };
                 const complete = (bytes: number) => {
                     if (bytes) {
+                        const downloadKey = uuid.v4();
                         response.bytes = bytes;
-                        DOWNLOAD_CACHE[downloadKey] = zippath;
+                        response.downloadKey = downloadKey;
+                        BLOB_CACHE[downloadKey] = zippath;
+                    }
+                    else {
+                        response.success = false;
                     }
                     res.json(response);
                     manager.formatMessage(Node.logType.NODE, 'WRITE', [response.zipname!, bytes + ' bytes']);
@@ -586,19 +589,9 @@ app.post('/api/v1/assets/archive', (req, res) => {
     resumeThread();
 });
 
-app.get('/api/v1/browser/download', (req, res) => {
-    const uri = DOWNLOAD_CACHE[req.query.key as string];
-    if (uri) {
-        res.sendFile(uri, err => {
-            if (err) {
-                Node.writeFail(['Unable to send file', uri], err);
-            }
-        });
-    }
-});
-
-app.get('/api/v1/loader/json', (req, res) => {
-    const uri = req.query.uri as string;
+app.get('/api/v1/loader/data/json', (req, res) => {
+    const uri = req.query.key as string;
+    const cache = req.query.cache === '1';
     if (uri) {
         let valid = true;
         const loadContent = (message: unknown, body: string) => {
@@ -621,13 +614,25 @@ app.get('/api/v1/loader/json', (req, res) => {
                 }
             }
             if (typeof data === 'object') {
+                if (cache) {
+                    JSON_CACHE[uri] = data as PlainObject;
+                }
                 res.json({ success: true, data } as ResponseData);
             }
             else {
                 res.json(Node.getResponseError(`FILE: Unable to download (${uri})`, message as Error));
             }
         };
-        if (Node.isFileURI(uri)) {
+        if (cache && JSON_CACHE[uri] || Node.isUUID(uri)) {
+            const data = JSON_CACHE[uri];
+            if (data) {
+                res.json({ success: true, data } as ResponseData);
+            }
+            else {
+                res.json(Node.getResponseError('CACHE: Could not locate key', uri));
+            }
+        }
+        else if (Node.isFileURI(uri)) {
             request(uri, (err, response) => loadContent(err, response.body));
         }
         else if (fs.existsSync(uri)) {
@@ -647,5 +652,20 @@ app.get('/api/v1/loader/json', (req, res) => {
         if (!valid) {
             res.json(Node.getResponseError('FILE: Unknown', uri));
         }
+    }
+});
+
+app.get('/api/v1/loader/data/blob', (req, res) => {
+    const key = req.query.key as string;
+    const uri = BLOB_CACHE[key];
+    if (uri) {
+        if (req.query.cache === '0') {
+            delete BLOB_CACHE[key];
+        }
+        res.sendFile(uri, err => {
+            if (err) {
+                Node.writeFail(['Unable to send file', uri], err);
+            }
+        });
     }
 });

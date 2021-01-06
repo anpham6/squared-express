@@ -115,13 +115,15 @@ Version 1.0.0
 ```javascript
 // NOTE: {required} [optional]
 
-POST: "/api/v1/assets/archive?format={zip|7z|gz|tar}&to=[disk_uri]&append_to=[archive_uri]&filename=[no_ext]"
+POST: "/api/v1/assets/archive?format={zip|7z|gz|tar}&filename=[no_ext]&to=[disk_uri]&append_to=[archive_uri]"
 
 POST: "/api/v1/assets/copy?to={disk_uri}&empty=[0|1]" // target directory
 
-GET: "/api/v1/browser/download?key={uuid}"
-
-GET: "/api/v1/loader/json?uri={file_uri}"
+GET: "/api/v1/loader/data/json?key={id}&cache=[0|1]" // squared 2.3.0 <ResponseData>
+GET: "/api/v1/loader/data/blob?key={id}&cache=[0|1]" // squared 2.3.0 <Blob>
+GET: "/api/v1/loader/data/text?key={id}&cache=[0|1]"
+GET: "/api/v1/loader/data/document?key={id}&cache=[0|1]"
+GET: "/api/v1/loader/data/arraybuffer?key={id}&cache=[0|1]"
 ```
 
 ### LICENSE
