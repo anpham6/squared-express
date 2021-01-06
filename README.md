@@ -1,4 +1,4 @@
-## squared-express 0.2
+## squared-express 0.3
 
 ```xml
 <!-- NOTE: cd ./dist -->
@@ -49,14 +49,6 @@ squared.copyFiles('/path/www', data);
 ```
 
 The same "data" object can be sent as JSON in a POST body request.
-
-```javascript
-// NOTE: {required} [optional]
-
-/api/v1/assets/archive?format={zip|7z|gz|tar}&to=[disk_uri]&append_to=[archive_uri]&filename=[no_ext]
-
-/api/v1/assets/copy?to={disk_uri}&empty=[0|1] // target directory
-```
 
 ### Archiving
 
@@ -119,11 +111,17 @@ function () {
 ### API Routes
 
 Version 1.0.0
-```xml
-/api/v1/assets/copy
-/api/v1/assets/archive
-/api/v1/browser/download
-/api/v1/loader/json
+
+```javascript
+// NOTE: {required} [optional]
+
+POST: "/api/v1/assets/archive?format={zip|7z|gz|tar}&to=[disk_uri]&append_to=[archive_uri]&filename=[no_ext]"
+
+POST: "/api/v1/assets/copy?to={disk_uri}&empty=[0|1]" // target directory
+
+GET: "/api/v1/browser/download?key={uuid}"
+
+GET: "/api/v1/loader/json?uri={file_uri}"
 ```
 
 ### LICENSE
