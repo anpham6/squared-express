@@ -1,5 +1,6 @@
 import type { ExtendedSettings, IFileManager, Settings as ISettings, ImageConstructor, RequestBody } from '@squared-functions/types';
 import type { ResponseData } from '@squared-functions/types/lib/squared';
+import type { TemplateeMap } from '@squared-functions/types/lib/chrome';
 import type { CorsOptions } from 'cors';
 import type { IRoute } from 'express';
 
@@ -17,6 +18,7 @@ import yaml = require('js-yaml');
 import chalk = require('chalk');
 
 import FileManager = require('@squared-functions/file-manager');
+import ChromeDocument = require('@squared-functions/document/chrome');
 
 interface Settings extends ISettings {
     env?: string;
@@ -25,11 +27,14 @@ interface Settings extends ISettings {
     cors?: CorsOptions;
     request_post_limit?: string;
     compress?: CompressModule;
+    chrome?: ChromeModule;
 }
 
 interface RoutingModule {
     [key: string]: Route[];
 }
+
+interface ChromeModule extends ExtendedSettings.DocumentModule, TemplateeMap {}
 
 interface CompressModule extends ExtendedSettings.CompressModule {
     "7za_bin"?: string;
@@ -65,7 +70,7 @@ app.use(body_parser.urlencoded({ extended: true }));
 const Node = FileManager.moduleNode();
 
 let Image: Undef<ImageConstructor>,
-    chromeModule: Undef<ExtendedSettings.ChromeModule>,
+    chromeModule: Undef<ChromeModule>,
     gulpModule: Undef<ExtendedSettings.GulpModule>,
     cloudModule: Undef<ExtendedSettings.CloudModule>,
     compressModule: Undef<CompressModule>,
@@ -77,18 +82,18 @@ function installModules(manager: IFileManager, query: StringMap) {
     if (Image) {
         manager.install('image', Image);
     }
-    if (gulpModule) {
-        manager.install('gulp', gulpModule);
-    }
     if (cloudModule) {
         manager.install('cloud', cloudModule);
     }
+    if (gulpModule) {
+        manager.install('gulp', gulpModule);
+    }
     if (chrome === '1') {
         if (chromeModule) {
-            manager.install('chrome', chromeModule, release === '1');
+            manager.install('document', ChromeDocument, chromeModule, release === '1');
         }
         if (compressModule) {
-            manager.install('compress', compressModule);
+            manager.install('compress');
         }
     }
     if (watch === '1') {

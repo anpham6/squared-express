@@ -116,7 +116,7 @@
   "gulp": {},
   "chrome": {
     "eval_function": true,
-    "eval_text_template": false,
+    "eval_template": false,
     "html": {
       "posthtml": {
         "transform": {
