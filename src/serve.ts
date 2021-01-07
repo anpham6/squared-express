@@ -610,7 +610,7 @@ app.get('/api/v1/loader/data/json', (req, res) => {
                             break;
                         case '.yml':
                         case '.yaml':
-                            data = yaml.load(body);
+                            data = yaml.load(body) as object;
                             break;
                     }
                 }

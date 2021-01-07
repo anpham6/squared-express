@@ -1,4 +1,4 @@
-## squared-express 0.3
+## squared-express 0.4
 
 ```xml
 <!-- NOTE: cd ./dist -->
@@ -8,7 +8,7 @@
 2. node serve.js [--help]
 ```
 
-### squared 2.0
+### squared 2.3
 
 Typically you will be using squared with squared-express although it can also be used to copy or archive files using JSON and the API routes.
 
@@ -43,7 +43,7 @@ squared.appendTo('/path/project.zip');
 squared.copyTo('/path/project');
 
 // chrome: File based
-squared.saveFiles('7z', data); // required: "data"
+squared.saveFiles('archive.7z', data); // required: "data"
 squared.appendFiles('http://hostname/project.zip', data);
 squared.copyFiles('/path/www', data);
 ```
