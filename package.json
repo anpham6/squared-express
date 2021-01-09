@@ -1,6 +1,6 @@
 {
   "name": "squared-express",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Express server for use with squared.",
   "main": "dist/serve.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "debug": "tsc --inlineSourceMap -outDir ./debug",
     "serve": "tsc --outDir ./debug && cd ./debug && node serve.js --access-all",
     "dev": "tsc && copyfiles -a ./build/* -u 1 ../squared",
-    "prod": "npm run clean && npm run build && copyfiles -a ./dist/* -u 1 ../squared",
+    "prod": "npm run clean && npm run build && copyfiles -a ./dist/* -u 1 ../squared && copyfiles -a ./dist/* -u 1 ../2.3.0",
     "clean": "rimraf build/* && rimraf tmp/* && rimraf debug/tmp/*"
   },
   "repository": {
@@ -25,7 +25,7 @@
   "license": "MIT",
   "homepage": "https://github.com/anpham6/squared-express#readme",
   "dependencies": {
-    "@squared-functions/file-manager": "^0.10.1",
+    "@squared-functions/file-manager": "^0.12.0",
     "archiver": "^5.2.0",
     "chalk": "^4.1.0",
     "cors": "^2.8.5",
@@ -69,7 +69,7 @@
     "ibm-cos-sdk": "^1.9.0",
     "imagemin-pngquant": "^9.0.1",
     "oracledb": "^5.1.0",
-    "postcss": "^8.2.3",
+    "postcss": "^8.2.4",
     "posthtml": "^0.15.1",
     "prettier": "^2.2.1",
     "rimraf": "^3.0.2",

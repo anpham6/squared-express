@@ -1,6 +1,6 @@
 import type { ExtendedSettings, IFileManager, Settings as ISettings, ImageConstructor, RequestBody } from '@squared-functions/types';
 import type { ResponseData } from '@squared-functions/types/lib/squared';
-import type { TemplateeMap } from '@squared-functions/types/lib/chrome';
+import type { TemplateMap } from '@squared-functions/types/lib/chrome';
 import type { CorsOptions } from 'cors';
 import type { IRoute } from 'express';
 
@@ -34,7 +34,7 @@ interface RoutingModule {
     [key: string]: Route[];
 }
 
-interface ChromeModule extends ExtendedSettings.DocumentModule, TemplateeMap {}
+interface ChromeModule extends ExtendedSettings.DocumentModule, TemplateMap {}
 
 interface CompressModule extends ExtendedSettings.CompressModule {
     "7za_bin"?: string;
@@ -77,8 +77,7 @@ let Image: Undef<ImageConstructor>,
     bin7za: Undef<string>,
     watchInterval: Undef<number>;
 
-function installModules(manager: IFileManager, query: StringMap) {
-    const { chrome, watch, release } = query;
+function installModules(manager: IFileManager, query: StringMap, document: Undef<string[]>) {
     if (Image) {
         manager.install('image', Image);
     }
@@ -88,15 +87,15 @@ function installModules(manager: IFileManager, query: StringMap) {
     if (gulpModule) {
         manager.install('gulp', gulpModule);
     }
-    if (chrome === '1') {
-        if (chromeModule) {
-            manager.install('document', ChromeDocument, chromeModule, release === '1');
-        }
-        if (compressModule) {
-            manager.install('compress');
+    if (document) {
+        if (chromeModule && document.includes('chrome')) {
+            manager.install('document', ChromeDocument, chromeModule, query.release === '1');
         }
     }
-    if (watch === '1') {
+    if (compressModule) {
+        manager.install('compress');
+    }
+    if (query.watch === '1') {
         manager.install('watch', watchInterval);
     }
 }
@@ -396,15 +395,16 @@ app.post('/api/v1/assets/copy', (req, res) => {
     const dirname = path.normalize(query.to as string);
     if (dirname && FileManager.hasPermissions(dirname, res)) {
         try {
+            const body = req.body as RequestBody;
             const manager = new FileManager(
                 dirname,
-                req.body as RequestBody,
+                body,
                 function(this: IFileManager) {
                     res.json({ success: this.files.size > 0, files: Array.from(this.files) } as ResponseData);
                     manager.formatMessage(Node.logType.NODE, 'WRITE', [dirname, this.files.size + ' files'], '');
                 }
             );
-            installModules(manager, query as StringMap);
+            installModules(manager, query as StringMap, body.document);
             manager.processAssets(query.empty === '1');
         }
         catch (err) {
@@ -461,9 +461,10 @@ app.post('/api/v1/assets/archive', (req, res) => {
     const resumeThread = (zipname?: string) => {
         zipname = (query.filename || zipname || uuid.v4()) + '.' + format;
         let zippath = path.join(dirname_zip, zipname);
+        const body = req.body as RequestBody;
         const manager = new FileManager(
             dirname,
-            req.body as RequestBody,
+            body,
             () => {
                 const response: ResponseData = {
                     success: manager.files.size > 0,
@@ -518,7 +519,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                 }
             }
         );
-        installModules(manager, query as StringMap);
+        installModules(manager, query as StringMap, body.document);
         try {
             manager.processAssets();
         }
