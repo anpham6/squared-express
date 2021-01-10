@@ -24,25 +24,111 @@
     "origin": false
   },
   "request_post_limit": "250mb",
-  "logger": {
-    "unknown": true,
-    "system": true,
-    "node": true,
-    "process": true,
-    "compress": true,
-    "watch": true,
-    "cloud_storage": true,
-    "cloud_database": true,
-    "time_elapsed": true
-  },
   "compress": {
     "gzip_level": 9,
     "brotli_quality": 11,
     "tinify_api_key": "",
     "7za_bin": ""
   },
+  "task": {
+    "gulp": {
+      "handler": "@squared-functions/task/gulp",
+      "settings": {}
+    }
+  },
+  "document": {
+    "android": {
+      "handler": ""
+    },
+    "chrome": {
+      "handler": "@squared-functions/document/chrome",
+      "eval_function": true,
+      "eval_template": false,
+      "settings": {
+        "html": {
+          "posthtml": {
+            "transform": {
+              "plugins": []
+            },
+            "transform-output": {}
+          },
+          "prettier": {
+            "beautify": {
+              "parser": "html",
+              "printWidth": 120,
+              "tabWidth": 4
+            }
+          },
+          "html-minifier-terser": {
+            "minify": {
+              "collapseWhitespace": true,
+              "collapseBooleanAttributes": true,
+              "removeEmptyAttributes": true,
+              "removeRedundantAttributes": true,
+              "removeScriptTypeAttributes": true,
+              "removeStyleLinkTypeAttributes": true,
+              "removeComments": true
+            }
+          }
+        },
+        "css": {
+          "postcss": {
+            "transform": {
+              "plugins": []
+            }
+          },
+          "prettier": {
+            "beautify": {
+              "parser": "css",
+              "tabWidth": 4
+            }
+          },
+          "clean-css": {
+            "minify": {
+              "inline": ["none"],
+              "level": 1
+            }
+          }
+        },
+        "js": {
+          "@babel/core": {
+            "es5": {
+              "presets": ["@babel/preset-env"]
+            }
+          },
+          "prettier": {
+            "beautify": {
+              "parser": "babel",
+              "printWidth": 120,
+              "tabWidth": 4
+            }
+          },
+          "terser": {
+            "minify": {
+              "toplevel": true,
+              "sourceMap": false
+            }
+          },
+          "uglify-js": {
+            "es5-minify": {
+              "toplevel": true
+            }
+          },
+          "rollup": {
+            "bundle": {
+              "treeshake": false,
+              "external": [],
+              "output": {
+                "sourcemap": false
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   "image": {
-    "command": "@squared-functions/image/jimp"
+    "handler": "@squared-functions/image/jimp"
   },
   "watch": {
     "interval": 200
@@ -113,88 +199,15 @@
       }
     }
   },
-  "gulp": {},
-  "chrome": {
-    "eval_function": true,
-    "eval_template": false,
-    "html": {
-      "posthtml": {
-        "transform": {
-          "plugins": []
-        },
-        "transform-output": {}
-      },
-      "prettier": {
-        "beautify": {
-          "parser": "html",
-          "printWidth": 120,
-          "tabWidth": 4
-        }
-      },
-      "html-minifier-terser": {
-        "minify": {
-          "collapseWhitespace": true,
-          "collapseBooleanAttributes": true,
-          "removeEmptyAttributes": true,
-          "removeRedundantAttributes": true,
-          "removeScriptTypeAttributes": true,
-          "removeStyleLinkTypeAttributes": true,
-          "removeComments": true
-        }
-      }
-    },
-    "css": {
-      "postcss": {
-        "transform": {
-          "plugins": []
-        }
-      },
-      "prettier": {
-        "beautify": {
-          "parser": "css",
-          "tabWidth": 4
-        }
-      },
-      "clean-css": {
-        "minify": {
-          "inline": ["none"],
-          "level": 1
-        }
-      }
-    },
-    "js": {
-      "@babel/core": {
-        "es5": {
-          "presets": ["@babel/preset-env"]
-        }
-      },
-      "prettier": {
-        "beautify": {
-          "parser": "babel",
-          "printWidth": 120,
-          "tabWidth": 4
-        }
-      },
-      "terser": {
-        "minify": {
-          "toplevel": true,
-          "sourceMap": false
-        }
-      },
-      "uglify-js": {
-        "es5-minify": {
-          "toplevel": true
-        }
-      },
-      "rollup": {
-        "bundle": {
-          "treeshake": false,
-          "external": [],
-          "output": {
-            "sourcemap": false
-          }
-        }
-      }
-    }
+  "logger": {
+    "unknown": true,
+    "system": true,
+    "node": true,
+    "process": true,
+    "compress": true,
+    "watch": true,
+    "cloud_storage": true,
+    "cloud_database": true,
+    "time_elapsed": true
   }
 }

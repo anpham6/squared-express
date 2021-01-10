@@ -8,7 +8,7 @@
     "debug": "tsc --inlineSourceMap -outDir ./debug",
     "serve": "tsc --outDir ./debug && cd ./debug && node serve.js --access-all",
     "dev": "tsc && copyfiles -a ./build/* -u 1 ../squared",
-    "prod": "npm run clean && npm run build && copyfiles -a ./dist/* -u 1 ../squared && copyfiles -a ./dist/* -u 1 ../2.3.0",
+    "prod": "npm run clean && npm run build && copyfiles -a ./dist/* -u 1 ../squared",
     "clean": "rimraf build/* && rimraf tmp/* && rimraf debug/tmp/*"
   },
   "repository": {

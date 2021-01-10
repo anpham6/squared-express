@@ -1,6 +1,5 @@
-import type { ExtendedSettings, IFileManager, Settings as ISettings, ImageConstructor, RequestBody } from '@squared-functions/types';
+import type { ExtendedSettings, IFileManager, ImageConstructor, RequestBody, Settings } from '@squared-functions/types';
 import type { ResponseData } from '@squared-functions/types/lib/squared';
-import type { TemplateMap } from '@squared-functions/types/lib/chrome';
 import type { CorsOptions } from 'cors';
 import type { IRoute } from 'express';
 
@@ -18,23 +17,19 @@ import yaml = require('js-yaml');
 import chalk = require('chalk');
 
 import FileManager = require('@squared-functions/file-manager');
-import ChromeDocument = require('@squared-functions/document/chrome');
 
-interface Settings extends ISettings {
+interface ServeSettings extends Settings {
     env?: string;
     port?: StringMap;
     routing?: RoutingModule;
     cors?: CorsOptions;
     request_post_limit?: string;
     compress?: CompressModule;
-    chrome?: ChromeModule;
 }
 
 interface RoutingModule {
     [key: string]: Route[];
 }
-
-interface ChromeModule extends ExtendedSettings.DocumentModule, TemplateMap {}
 
 interface CompressModule extends ExtendedSettings.CompressModule {
     "7za_bin"?: string;
@@ -70,30 +65,57 @@ app.use(body_parser.urlencoded({ extended: true }));
 const Node = FileManager.moduleNode();
 
 let Image: Undef<ImageConstructor>,
-    chromeModule: Undef<ChromeModule>,
-    gulpModule: Undef<ExtendedSettings.GulpModule>,
+    documentModule: Undef<ObjectMap<ExtendedSettings.DocumentModule>>,
+    taskModule: Undef<ObjectMap<ExtendedSettings.TaskModule>>,
     cloudModule: Undef<ExtendedSettings.CloudModule>,
     compressModule: Undef<CompressModule>,
-    bin7za: Undef<string>,
+    path7za: Undef<string>,
     watchInterval: Undef<number>;
 
-function installModules(manager: IFileManager, query: StringMap, document: Undef<string[]>) {
+function installModules(manager: IFileManager, query: StringMap, document: Undef<string[]>, task: Undef<string[]>) {
+    if (documentModule && document) {
+        for (const value of document) {
+            const module = documentModule[value];
+            if (module && module.handler) {
+                try {
+                    const instance = require(module.handler);
+                    switch (value) {
+                        case 'chrome':
+                            manager.install('document', instance, module, query.release === '1');
+                            break;
+                        default:
+                            manager.install('document', instance, module);
+                            break;
+                    }
+                }
+                catch (err) {
+                    Node.writeFail(['Unable to load Document handler', value], err);
+                }
+            }
+        }
+    }
+    if (taskModule && task) {
+        for (const value of task) {
+            const module = taskModule[value];
+            if (module && module.handler && module.settings) {
+                try {
+                    const instance = require(module.handler);
+                    manager.install('task', instance, module);
+                }
+                catch (err) {
+                    Node.writeFail(['Unable to load Task handler', value], err);
+                }
+            }
+        }
+    }
     if (Image) {
         manager.install('image', Image);
     }
-    if (cloudModule) {
-        manager.install('cloud', cloudModule);
-    }
-    if (gulpModule) {
-        manager.install('gulp', gulpModule);
-    }
-    if (document) {
-        if (chromeModule && document.includes('chrome')) {
-            manager.install('document', ChromeDocument, chromeModule, query.release === '1');
-        }
-    }
     if (compressModule) {
         manager.install('compress');
+    }
+    if (cloudModule) {
+        manager.install('cloud', cloudModule);
     }
     if (query.watch === '1') {
         manager.install('watch', watchInterval);
@@ -214,32 +236,36 @@ function writeFail(name: string, hint = '', err?: unknown) {
         }
     }
 
-    let settings: Settings = {};
+    let settings: ServeSettings = {};
     try {
-        settings = fs.existsSync('./squared.settings.yml') && yaml.load(fs.readFileSync(path.resolve('./squared.settings.yml'), 'utf8')) as Settings || require('./squared.settings.json');
-        ({ compress: compressModule, cloud: cloudModule, gulp: gulpModule, chrome: chromeModule } = settings);
+        settings = fs.existsSync('./squared.settings.yml') && yaml.load(fs.readFileSync(path.resolve('./squared.settings.yml'), 'utf8')) as ServeSettings || require('./squared.settings.json');
+        ({ document: documentModule, task: taskModule, compress: compressModule, cloud: cloudModule } = settings);
         FileManager.loadSettings(settings, ignorePermissions);
-
-        if (compressModule) {
-            const bin = compressModule['7za_bin'];
-            if (bin && fs.existsSync(bin)) {
-                bin7za = bin;
-            }
-            else {
-                try {
-                    const bin7zip = require('7zip-bin');
-                    bin7za = bin7zip.path7za as string;
-                }
-                catch {
-                }
-            }
-        }
-
-        Image = require(settings.image?.command || '@squared-functions/image/jimp');
     }
     catch (err) {
+        Node.writeFail(['Unable to load Settings file', 'squared'], err);
+    }
+
+    if (compressModule) {
+        try {
+            const bin = compressModule['7za_bin'];
+            if (bin && fs.existsSync(bin)) {
+                path7za = bin;
+            }
+            else {
+                ({ path7za } = require('7zip-bin'));
+            }
+        }
+        catch {
+        }
+    }
+
+    try {
+        Image = require(settings.image?.handler || '@squared-functions/image/jimp');
+    }
+    catch (err) {
+        Node.writeFail(['Unable to load Image handler', settings.image!.handler!], err);
         Image = require('@squared-functions/image/jimp');
-        Node.writeFail('Unable to load settings', err);
     }
 
     if (settings.routing) {
@@ -404,7 +430,7 @@ app.post('/api/v1/assets/copy', (req, res) => {
                     manager.formatMessage(Node.logType.NODE, 'WRITE', [dirname, this.files.size + ' files'], '');
                 }
             );
-            installModules(manager, query as StringMap, body.document);
+            installModules(manager, query as StringMap, body.document, body.task);
             manager.processAssets(query.empty === '1');
         }
         catch (err) {
@@ -441,7 +467,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
     }
     switch (format) {
         case '7z':
-            if (bin7za) {
+            if (path7za) {
                 use7z = true;
             }
             else {
@@ -513,13 +539,13 @@ app.post('/api/v1/assets/archive', (req, res) => {
                     archive.finalize();
                 }
                 else {
-                    _7z.add(zippath, dirname + path.sep + '*', { $bin: bin7za, recursive: true })
+                    _7z.add(zippath, dirname + path.sep + '*', { $bin: path7za, recursive: true })
                         .on('end', () => complete(FileManager.getFileSize(zippath)))
                         .on('error', err => writeFail('archive', format, err));
                 }
             }
         );
-        installModules(manager, query as StringMap, body.document);
+        installModules(manager, query as StringMap, body.document, body.task);
         try {
             manager.processAssets();
         }
@@ -528,12 +554,12 @@ app.post('/api/v1/assets/archive', (req, res) => {
         }
     };
     if (append_to) {
-        if (bin7za) {
+        if (path7za) {
             const match = /([^/\\]+)\.\w+?$/i.exec(append_to);
             if (match) {
                 const zippath = path.join(dirname_zip, match[0]);
                 const decompress = () => {
-                    _7z.extractFull(zippath, dirname, { $bin: bin7za, recursive: true })
+                    _7z.extractFull(zippath, dirname, { $bin: path7za, recursive: true })
                         .on('end', () => {
                             resumeThread(match[1]);
                         })

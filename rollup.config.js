@@ -1,3 +1,4 @@
+import { version } from './package.json';
 import { terser } from 'rollup-plugin-terser';
 
 export default {
@@ -5,9 +6,10 @@ export default {
     treeshake: false,
     output: {
         file: './dist/serve.js',
-        format: 'iife'
+        format: 'iife',
+        banner: `/* squared-express ${version}\n   https://github.com/anpham6/squared-express */`
     },
     plugins: [
-        terser({ toplevel: true })
+        terser({ toplevel: true, format: { comments: true } })
     ]
 }
