@@ -569,7 +569,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                         });
                 };
                 try {
-                    if (Node.isFileURI(append_to)) {
+                    if (Node.isFileHTTP(append_to)) {
                         const stream = fs.createWriteStream(zippath);
                         stream.on('finish', decompress);
                         let error: Undef<boolean>;
@@ -590,19 +590,25 @@ app.post('/api/v1/assets/archive', (req, res) => {
                             .pipe(stream);
                         return;
                     }
-                    else if (fs.existsSync(append_to)) {
+                    else if (fs.existsSync(append_to = Node.resolveUri(append_to))) {
                         if (Node.isFileUNC(append_to)) {
                             if (!Node.hasUNCRead()) {
                                 res.json(Node.getResponseError('OPTION: --unc-read', 'Reading from UNC shares is not enabled.'));
-                                return;
                             }
-                        }
-                        else if (!Node.hasDiskRead() && path.isAbsolute(append_to)) {
-                            res.json(Node.getResponseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
+                            else {
+                                fs.copyFile(append_to, zippath, decompress);
+                            }
                             return;
                         }
-                        fs.copyFile(append_to, zippath, decompress);
-                        return;
+                        else if (path.isAbsolute(append_to)) {
+                            if (!Node.hasDiskRead()) {
+                                res.json(Node.getResponseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
+                            }
+                            else {
+                                fs.copyFile(append_to, zippath, decompress);
+                            }
+                            return;
+                        }
                     }
                     Node.writeFail('Archive not found', append_to);
                 }
@@ -622,7 +628,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
 });
 
 app.get('/api/v1/loader/data/json', (req, res) => {
-    const uri = req.query.key as string;
+    let uri = req.query.key as string;
     const cache = req.query.cache === '1';
     if (uri) {
         let valid = true;
@@ -664,10 +670,10 @@ app.get('/api/v1/loader/data/json', (req, res) => {
                 res.json(Node.getResponseError('CACHE: Could not locate key', uri));
             }
         }
-        else if (Node.isFileURI(uri)) {
+        else if (Node.isFileHTTP(uri)) {
             request(uri, (err, response) => loadContent(err, response.body));
         }
-        else if (fs.existsSync(uri)) {
+        else if (fs.existsSync(uri = Node.resolveUri(uri))) {
             if (Node.isFileUNC(uri)) {
                 valid = Node.hasUNCRead();
             }
