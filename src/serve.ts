@@ -1,4 +1,4 @@
-import type { ExtendedSettings, IFileManager, ImageConstructor, RequestBody, Settings } from '@squared-functions/types';
+import type { ExtendedSettings, IFileManager, IPermission, ImageConstructor, RequestBody, Settings } from '@squared-functions/types';
 import type { ResponseData } from '@squared-functions/types/lib/squared';
 import type { CorsOptions } from 'cors';
 import type { IRoute } from 'express';
@@ -69,6 +69,8 @@ let Image: Undef<ImageConstructor>,
     taskModule: Undef<ObjectMap<ExtendedSettings.TaskModule>>,
     cloudModule: Undef<ExtendedSettings.CloudModule>,
     compressModule: Undef<CompressModule>,
+    settings: ServeSettings = {},
+    permission: Undef<IPermission>,
     path7za: Undef<string>,
     watchInterval: Undef<number>;
 
@@ -194,56 +196,46 @@ function writeFail(name: string, hint = '', err?: unknown) {
         .epilogue('For more information and source: https://github.com/anpham6/squared')
         .argv as YargsArgv;
 
-    let { NODE_ENV: ENV, PORT } = process.env,
-        ignorePermissions = false;
-    if (argv.accessAll) {
-        Node.setDiskRead();
-        Node.setDiskWrite();
-        Node.setUNCRead();
-        Node.setUNCWrite();
-        ignorePermissions = true;
-    }
-    else {
-        if (argv.accessDisk) {
-            Node.setDiskRead();
-            Node.setDiskWrite();
-            ignorePermissions = true;
-        }
-        else {
-            if (argv.diskRead) {
-                Node.setDiskRead();
-                ignorePermissions = true;
-            }
-            if (argv.diskWrite) {
-                Node.setDiskWrite();
-                ignorePermissions = true;
-            }
-        }
-        if (argv.accessUnc) {
-            Node.setUNCRead();
-            Node.setUNCWrite();
-            ignorePermissions = true;
-        }
-        else {
-            if (argv.uncRead) {
-                Node.setUNCRead();
-                ignorePermissions = true;
-            }
-            if (argv.uncWrite) {
-                Node.setUNCWrite();
-                ignorePermissions = true;
-            }
-        }
-    }
-
-    let settings: ServeSettings = {};
+    let { NODE_ENV: ENV, PORT } = process.env;
     try {
         settings = fs.existsSync('./squared.settings.yml') && yaml.load(fs.readFileSync(path.resolve('./squared.settings.yml'), 'utf8')) as ServeSettings || require('./squared.settings.json');
         ({ document: documentModule, task: taskModule, compress: compressModule, cloud: cloudModule } = settings);
-        FileManager.loadSettings(settings, ignorePermissions);
     }
     catch (err) {
         Node.writeFail(['Unable to load Settings file', 'squared'], err);
+    }
+
+    if (argv.accessAll) {
+        settings.disk_read = true;
+        settings.disk_write = true;
+        settings.unc_read = true;
+        settings.unc_write = true;
+    }
+    else {
+        if (argv.accessDisk) {
+            settings.disk_read = true;
+            settings.disk_write = true;
+        }
+        else {
+            if (argv.diskRead) {
+                settings.disk_read = true;
+            }
+            if (argv.diskWrite) {
+                settings.disk_write = true;
+            }
+        }
+        if (argv.accessUnc) {
+            settings.unc_read = true;
+            settings.unc_write = true;
+        }
+        else {
+            if (argv.uncRead) {
+                settings.unc_read = true;
+            }
+            if (argv.uncWrite) {
+                settings.unc_write = true;
+            }
+        }
     }
 
     if (compressModule) {
@@ -382,8 +374,10 @@ function writeFail(name: string, hint = '', err?: unknown) {
         Node.writeFail('Routing not defined');
     }
 
-    Node.formatMessage(Node.logType.SYSTEM, 'DISK', (Node.hasDiskRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (Node.hasDiskWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
-    Node.formatMessage(Node.logType.SYSTEM, 'UNC', (Node.hasUNCRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (Node.hasUNCWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
+    permission = FileManager.getPermission(settings);
+
+    Node.formatMessage(Node.logType.SYSTEM, 'DISK', (permission.hasDiskRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (permission.hasDiskWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
+    Node.formatMessage(Node.logType.SYSTEM, 'UNC', (permission.hasUNCRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (permission.hasUNCWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
 
     if (argv.cors) {
         app.use(cors({ origin: argv.cors }));
@@ -419,7 +413,7 @@ function writeFail(name: string, hint = '', err?: unknown) {
 app.post('/api/v1/assets/copy', (req, res) => {
     const query = req.query;
     const dirname = path.normalize(query.to as string);
-    if (dirname && FileManager.hasPermissions(dirname, res)) {
+    if (dirname && permission && FileManager.hasPermission(dirname, permission, res)) {
         try {
             const body = req.body as RequestBody;
             const manager = new FileManager(
@@ -428,7 +422,8 @@ app.post('/api/v1/assets/copy', (req, res) => {
                 function(this: IFileManager) {
                     res.json({ success: this.files.size > 0, files: Array.from(this.files) } as ResponseData);
                     manager.formatMessage(Node.logType.NODE, 'WRITE', [dirname, this.files.size + ' files'], '');
-                }
+                },
+                settings
             );
             installModules(manager, query as StringMap, body.document, body.task);
             manager.processAssets(query.empty === '1');
@@ -445,7 +440,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
     let dirname = path.join(__dirname, 'tmp', uuid.v4()),
         dirname_zip: string;
     try {
-        if (copy_to && FileManager.hasPermissions(copy_to, res)) {
+        if (copy_to && permission && FileManager.hasPermission(dirname, permission, res)) {
             dirname = copy_to;
         }
         else {
@@ -543,7 +538,8 @@ app.post('/api/v1/assets/archive', (req, res) => {
                         .on('end', () => complete(FileManager.getFileSize(zippath)))
                         .on('error', err => writeFail('archive', format, err));
                 }
-            }
+            },
+            settings
         );
         installModules(manager, query as StringMap, body.document, body.task);
         try {
@@ -592,7 +588,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                     }
                     else if (fs.existsSync(append_to = Node.resolveUri(append_to))) {
                         if (Node.isFileUNC(append_to)) {
-                            if (!Node.hasUNCRead()) {
+                            if (!permission || !permission.hasUNCRead()) {
                                 res.json(Node.getResponseError('OPTION: --unc-read', 'Reading from UNC shares is not enabled.'));
                             }
                             else {
@@ -601,7 +597,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                             return;
                         }
                         else if (path.isAbsolute(append_to)) {
-                            if (!Node.hasDiskRead()) {
+                            if (!permission || !permission.hasDiskRead()) {
                                 res.json(Node.getResponseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
                             }
                             else {
@@ -673,12 +669,12 @@ app.get('/api/v1/loader/data/json', (req, res) => {
         else if (Node.isFileHTTP(uri)) {
             request(uri, (err, response) => loadContent(err, response.body));
         }
-        else if (fs.existsSync(uri = Node.resolveUri(uri))) {
+        else if (permission && fs.existsSync(uri = Node.resolveUri(uri))) {
             if (Node.isFileUNC(uri)) {
-                valid = Node.hasUNCRead();
+                valid = permission.hasUNCRead();
             }
             else {
-                valid = Node.hasDiskRead();
+                valid = permission.hasDiskRead();
             }
             if (valid) {
                 fs.readFile(uri, 'utf8', (err, data) => loadContent(err, data));
