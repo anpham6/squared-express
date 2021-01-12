@@ -1,4 +1,4 @@
-import type { ExtendedSettings, IFileManager, IPermission, ImageConstructor, RequestBody, Settings } from '@squared-functions/types';
+import type { ExtendedSettings, ExternalAsset, IFileManager, IPermission, ImageConstructor, RequestBody, Settings } from '@squared-functions/types';
 import type { ResponseData } from '@squared-functions/types/lib/squared';
 import type { CorsOptions } from 'cors';
 import type { IRoute } from 'express';
@@ -74,9 +74,9 @@ let Image: Undef<ImageConstructor>,
     path7za: Undef<string>,
     watchInterval: Undef<number>;
 
-function installModules(manager: IFileManager, query: StringMap, document: Undef<string[]>, task: Undef<string[]>) {
-    if (documentModule && document) {
-        for (const value of document) {
+function installModules(manager: IFileManager, query: StringMap, body: RequestBody) {
+    if (documentModule && body.document) {
+        for (const value of body.document) {
             const module = documentModule[value];
             if (module && module.handler) {
                 try {
@@ -96,8 +96,8 @@ function installModules(manager: IFileManager, query: StringMap, document: Undef
             }
         }
     }
-    if (taskModule && task) {
-        for (const value of task) {
+    if (taskModule && body.task) {
+        for (const value of body.task) {
             const module = taskModule[value];
             if (module && module.handler && module.settings) {
                 try {
@@ -135,6 +135,26 @@ function writeFail(name: string, hint = '', err?: unknown) {
         case 'download':
             Node.writeFail(['Unable to download file', hint], err);
             break;
+    }
+}
+
+function applySettings(assets: ExternalAsset[]) {
+    const apiKey = settings.compress?.tinify_api_key;
+    if (apiKey) {
+        for (const asset of assets) {
+            if (asset.compress) {
+                for (const item of asset.compress) {
+                    switch (item.format) {
+                        case 'png':
+                        case 'jpeg':
+                            if ((item.plugin ||= 'tinify') === 'tinify' && !(item.options ||= {}).apiKey) {
+                                item.options.apiKey = apiKey;
+                            }
+                            break;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -425,7 +445,8 @@ app.post('/api/v1/assets/copy', (req, res) => {
                 },
                 settings
             );
-            installModules(manager, query as StringMap, body.document, body.task);
+            installModules(manager, query as StringMap, body);
+            applySettings(manager.assets);
             manager.processAssets(query.empty === '1');
         }
         catch (err) {
@@ -480,69 +501,70 @@ app.post('/api/v1/assets/archive', (req, res) => {
             break;
     }
     const resumeThread = (zipname?: string) => {
-        zipname = (query.filename || zipname || uuid.v4()) + '.' + format;
-        let zippath = path.join(dirname_zip, zipname);
-        const body = req.body as RequestBody;
-        const manager = new FileManager(
-            dirname,
-            body,
-            () => {
-                const response: ResponseData = {
-                    success: manager.files.size > 0,
-                    zipname,
-                    files: Array.from(manager.files)
-                };
-                const complete = (bytes: number) => {
-                    if (bytes) {
-                        const downloadKey = uuid.v4();
-                        response.bytes = bytes;
-                        response.downloadKey = downloadKey;
-                        BLOB_CACHE[downloadKey] = zippath;
+        try {
+            zipname = (query.filename || zipname || uuid.v4()) + '.' + format;
+            let zippath = path.join(dirname_zip, zipname);
+            const body = req.body as RequestBody;
+            const manager = new FileManager(
+                dirname,
+                body,
+                () => {
+                    const response: ResponseData = {
+                        success: manager.files.size > 0,
+                        zipname,
+                        files: Array.from(manager.files)
+                    };
+                    const complete = (bytes: number) => {
+                        if (bytes) {
+                            const downloadKey = uuid.v4();
+                            response.bytes = bytes;
+                            response.downloadKey = downloadKey;
+                            BLOB_CACHE[downloadKey] = zippath;
+                        }
+                        else {
+                            response.success = false;
+                        }
+                        res.json(response);
+                        manager.formatMessage(Node.logType.NODE, 'WRITE', [response.zipname!, bytes + ' bytes']);
+                    };
+                    if (!use7z) {
+                        const archive = archiver(format as archiver.Format, { zlib: { level: FileManager.moduleCompress().gzipLevel } });
+                        const output = fs.createWriteStream(zippath);
+                        output
+                            .on('close', () => {
+                                if (useGzip) {
+                                    const gz = format === 'tgz' ? zippath.replace(/tar$/, 'tgz') : zippath + '.gz';
+                                    FileManager.moduleCompress().createWriteStreamAsGzip(zippath, gz)
+                                        .on('finish', () => {
+                                            zippath = gz;
+                                            response.zipname = path.basename(gz);
+                                            complete(FileManager.getFileSize(gz));
+                                        })
+                                        .on('error', err => {
+                                            response.success = false;
+                                            writeFail('archive', format, err);
+                                            res.json(response);
+                                        });
+                                }
+                                else {
+                                    complete(archive.pointer());
+                                }
+                            })
+                            .on('error', err => writeFail('archive', format, err));
+                        archive.pipe(output);
+                        archive.directory(dirname, false);
+                        archive.finalize();
                     }
                     else {
-                        response.success = false;
+                        _7z.add(zippath, dirname + path.sep + '*', { $bin: path7za, recursive: true })
+                            .on('end', () => complete(FileManager.getFileSize(zippath)))
+                            .on('error', err => writeFail('archive', format, err));
                     }
-                    res.json(response);
-                    manager.formatMessage(Node.logType.NODE, 'WRITE', [response.zipname!, bytes + ' bytes']);
-                };
-                if (!use7z) {
-                    const archive = archiver(format as archiver.Format, { zlib: { level: FileManager.moduleCompress().gzipLevel } });
-                    const output = fs.createWriteStream(zippath);
-                    output
-                        .on('close', () => {
-                            if (useGzip) {
-                                const gz = format === 'tgz' ? zippath.replace(/tar$/, 'tgz') : zippath + '.gz';
-                                FileManager.moduleCompress().createWriteStreamAsGzip(zippath, gz)
-                                    .on('finish', () => {
-                                        zippath = gz;
-                                        response.zipname = path.basename(gz);
-                                        complete(FileManager.getFileSize(gz));
-                                    })
-                                    .on('error', err => {
-                                        response.success = false;
-                                        writeFail('archive', format, err);
-                                        res.json(response);
-                                    });
-                            }
-                            else {
-                                complete(archive.pointer());
-                            }
-                        })
-                        .on('error', err => writeFail('archive', format, err));
-                    archive.pipe(output);
-                    archive.directory(dirname, false);
-                    archive.finalize();
-                }
-                else {
-                    _7z.add(zippath, dirname + path.sep + '*', { $bin: path7za, recursive: true })
-                        .on('end', () => complete(FileManager.getFileSize(zippath)))
-                        .on('error', err => writeFail('archive', format, err));
-                }
-            },
-            settings
-        );
-        installModules(manager, query as StringMap, body.document, body.task);
-        try {
+                },
+                settings
+            );
+            installModules(manager, query as StringMap, body);
+            applySettings(manager.assets);
             manager.processAssets();
         }
         catch (err) {
