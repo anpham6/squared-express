@@ -57,7 +57,7 @@ interface Route extends Partial<RouteHandler> {
 type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
 
 const JSON_CACHE: ObjectMap<PlainObject> = {};
-const BLOB_CACHE: StringMap = {};
+const BLOB_CACHE: ObjectMap<{ filename: string; uri: string }> = {};
 
 const app = express();
 app.use(body_parser.urlencoded({ extended: true }));
@@ -527,10 +527,10 @@ app.post('/api/v1/assets/archive', (req, res) => {
             format = 'zip';
             break;
     }
-    const resumeThread = (zipname?: string) => {
+    const resumeThread = (filename = '') => {
         try {
-            zipname = (query.filename || zipname || uuid.v4()) + '.' + format;
-            let zippath = path.join(dirname_zip, zipname);
+            filename = (query.filename || filename || uuid.v4()) + '.' + format;
+            let zippath = path.join(dirname_zip, filename);
             const body = req.body as RequestBody;
             const manager = new FileManager(
                 dirname,
@@ -538,7 +538,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                 errors => {
                     const response: ResponseData = {
                         success: manager.files.size > 0,
-                        zipname,
+                        filename,
                         files: Array.from(manager.files),
                         error: parseErrors(errors)
                     };
@@ -547,13 +547,13 @@ app.post('/api/v1/assets/archive', (req, res) => {
                             const downloadKey = uuid.v4();
                             response.bytes = bytes;
                             response.downloadKey = downloadKey;
-                            BLOB_CACHE[downloadKey] = zippath;
+                            BLOB_CACHE[downloadKey] = { filename, uri: zippath };
                         }
                         else {
                             response.success = false;
                         }
                         res.json(response);
-                        manager.formatMessage(Module.logType.NODE, 'WRITE', [response.zipname!, bytes + ' bytes']);
+                        manager.formatMessage(Module.logType.NODE, 'WRITE', [response.filename!, bytes + ' bytes']);
                     };
                     if (!use7z) {
                         const archive = archiver(format as archiver.Format, { zlib: { level: Module.gzipLevel } });
@@ -565,7 +565,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                                         Module.createWriteStreamAsGzip(zippath, gz)
                                             .on('finish', () => {
                                                 zippath = gz;
-                                                response.zipname = path.basename(gz);
+                                                response.filename = path.basename(gz);
                                                 complete(FileManager.getFileSize(gz));
                                             })
                                             .on('error', err => {
@@ -741,15 +741,25 @@ app.get('/api/v1/loader/data/json', (req, res) => {
 
 app.get('/api/v1/loader/data/blob', (req, res) => {
     const key = req.query.key as string;
-    const uri = BLOB_CACHE[key];
-    if (uri) {
-        if (req.query.cache === '0') {
-            delete BLOB_CACHE[key];
+    const data = BLOB_CACHE[key];
+    if (data) {
+        const cache = req.query.cache;
+        const uri = data.uri;
+        if (!cache) {
+            res.download(uri, data.filename);
         }
-        res.sendFile(uri, err => {
-            if (err) {
-                Module.writeFail(['Unable to send file', uri], err);
+        else {
+            if (cache === '0') {
+                delete BLOB_CACHE[key];
             }
-        });
+            res.sendFile(uri, err => {
+                if (err) {
+                    Module.writeFail(['Unable to send file', uri], err);
+                }
+            });
+        }
+    }
+    else {
+        res.send(null);
     }
 });
