@@ -1,7 +1,7 @@
-import type { ExtendedSettings, ExternalAsset, IFileManager, IPermission, ImageConstructor, RequestBody, Settings } from '@squared-functions/types';
+import type { ExtendedSettings, IFileManager, IPermission, ImageConstructor, RequestBody, Settings } from '@squared-functions/types';
 import type { ResponseData } from '@squared-functions/types/lib/squared';
-import type { CorsOptions } from 'cors';
 import type { IRoute } from 'express';
+import type { CorsOptions } from 'cors';
 
 import path = require('path');
 import fs = require('fs-extra');
@@ -62,10 +62,10 @@ const BLOB_CACHE: StringMap = {};
 const app = express();
 app.use(body_parser.urlencoded({ extended: true }));
 
-const Node = FileManager.moduleNode();
+const Module = FileManager.moduleCompress();
+const Image = new Map<string, ImageConstructor>();
 
-let Image: Undef<ImageConstructor>,
-    documentModule: Undef<ObjectMap<ExtendedSettings.DocumentModule>>,
+let documentModule: Undef<ObjectMap<ExtendedSettings.DocumentModule>>,
     taskModule: Undef<ObjectMap<ExtendedSettings.TaskModule>>,
     cloudModule: Undef<ExtendedSettings.CloudModule>,
     compressModule: Undef<CompressModule>,
@@ -74,7 +74,7 @@ let Image: Undef<ImageConstructor>,
     path7za: Undef<string>,
     watchInterval: Undef<number>;
 
-function installModules(manager: IFileManager, query: StringMap, body: RequestBody) {
+function installModules(this: IFileManager, query: StringMap, body: RequestBody) {
     if (documentModule && body.document) {
         for (const value of body.document) {
             const module = documentModule[value];
@@ -83,15 +83,15 @@ function installModules(manager: IFileManager, query: StringMap, body: RequestBo
                     const instance = require(module.handler);
                     switch (value) {
                         case 'chrome':
-                            manager.install('document', instance, module, query.release === '1');
+                            this.install('document', instance, module, query.release === '1');
                             break;
                         default:
-                            manager.install('document', instance, module);
+                            this.install('document', instance, module);
                             break;
                     }
                 }
                 catch (err) {
-                    Node.writeFail(['Unable to load Document handler', value], err);
+                    Module.writeFail(['Unable to load Document handler', value], err);
                 }
             }
         }
@@ -102,46 +102,32 @@ function installModules(manager: IFileManager, query: StringMap, body: RequestBo
             if (module && module.handler && module.settings) {
                 try {
                     const instance = require(module.handler);
-                    manager.install('task', instance, module);
+                    this.install('task', instance, module);
                 }
                 catch (err) {
-                    Node.writeFail(['Unable to load Task handler', value], err);
+                    Module.writeFail(['Unable to load Task handler', value], err);
                 }
             }
         }
     }
     if (Image) {
-        manager.install('image', Image);
+        this.install('image', Image);
     }
     if (compressModule) {
-        manager.install('compress');
+        this.install('compress');
     }
     if (cloudModule) {
-        manager.install('cloud', cloudModule);
+        this.install('cloud', cloudModule);
     }
     if (query.watch === '1') {
-        manager.install('watch', watchInterval);
+        this.install('watch', watchInterval);
     }
 }
 
-function writeFail(name: string, hint = '', err?: unknown) {
-    switch (name) {
-        case '7z':
-            Node.formatMessage(Node.logType.NODE, 'ARCHIVE', ['Install required? [npm i 7zip-bin]', '7z'], 'Binary not found', { titleColor: 'yellow' });
-            break;
-        case 'archive':
-            Node.writeFail(['Unable to create archive', hint], err);
-            break;
-        case 'download':
-            Node.writeFail(['Unable to download file', hint], err);
-            break;
-    }
-}
-
-function applySettings(assets: ExternalAsset[]) {
+function applySettings(this: IFileManager) {
     const apiKey = settings.compress?.tinify_api_key;
     if (apiKey) {
-        for (const asset of assets) {
+        for (const asset of this.assets) {
             if (asset.compress) {
                 for (const item of asset.compress) {
                     switch (item.format) {
@@ -155,6 +141,27 @@ function applySettings(assets: ExternalAsset[]) {
                 }
             }
         }
+    }
+}
+
+function writeFail(name: string, hint = '', err?: Null<Error>) {
+    switch (name) {
+        case '7z':
+            Module.formatMessage(Module.logType.SYSTEM, 'ARCHIVE', ['Install required? <npm i 7zip-bin>', '7z'], 'Binary not found', { titleColor: 'yellow' });
+            break;
+        case 'archive':
+            Module.writeFail(['Unable to create archive', hint], err);
+            break;
+        case 'download':
+            Module.writeFail(['Unable to download file', hint], err);
+            break;
+    }
+}
+
+function parseErrors(errors: string[]) {
+    const length = errors.length;
+    if (length) {
+        return length > 1 ? { hint: `FAIL: ${length} errors`, message: errors.map(value => '- ' + value).join('\n') } : { message: 'FAIL: ' + errors[0] };
     }
 }
 
@@ -222,7 +229,7 @@ function applySettings(assets: ExternalAsset[]) {
         ({ document: documentModule, task: taskModule, compress: compressModule, cloud: cloudModule } = settings);
     }
     catch (err) {
-        Node.writeFail(['Unable to load Settings file', 'squared'], err);
+        Module.writeFail(['Unable to load Settings file', 'squared'], err);
     }
 
     if (argv.accessAll) {
@@ -272,12 +279,22 @@ function applySettings(assets: ExternalAsset[]) {
         }
     }
 
-    try {
-        Image = require(settings.image?.handler || '@squared-functions/image/jimp');
+    if (settings.image) {
+        let mime = '';
+        try {
+            for (mime in settings.image) {
+                const name = settings.image[mime];
+                if (name) {
+                    Image.set((mime !== 'handler' ? 'image/' : '') + mime, require(name));
+                }
+            }
+        }
+        catch (err) {
+            Module.writeFail(['Unable to load Image handler', mime], err);
+        }
     }
-    catch (err) {
-        Node.writeFail(['Unable to load Image handler', settings.image!.handler!], err);
-        Image = require('@squared-functions/image/jimp');
+    if (!Image.has('handler')) {
+        Image.set('handler', require('@squared-functions/image/jimp'));
     }
 
     if (settings.routing) {
@@ -329,11 +346,11 @@ function applySettings(assets: ExternalAsset[]) {
                         const pathname = path.join(__dirname, mount);
                         try {
                             app.use(dirname, express.static(pathname));
-                            Node.formatMessage(Node.logType.SYSTEM, 'MOUNT', `${chalk.bgGrey(pathname)} ${chalk.yellow('->')} ${chalk.bold(dirname)}`, '', { titleColor: 'yellow' });
+                            Module.formatMessage(Module.logType.SYSTEM, 'MOUNT', `${chalk.bgGrey(pathname)} ${chalk.yellow('->')} ${chalk.bold(dirname)}`, '', { titleColor: 'yellow' });
                             ++mounts;
                         }
                         catch (err) {
-                            Node.writeFail(['Unable to mount directory', dirname], err);
+                            Module.writeFail(['Unable to mount directory', dirname], err);
                         }
                     }
                     else {
@@ -344,7 +361,7 @@ function applySettings(assets: ExternalAsset[]) {
                             }
                             let callback: FunctionType<string>[] | FunctionType<string> = [];
                             for (const content of handler) {
-                                const method = Node.parseFunction(content);
+                                const method = Module.parseFunction(content);
                                 if (method) {
                                     callback.push(method);
                                 }
@@ -362,11 +379,11 @@ function applySettings(assets: ExternalAsset[]) {
                                 if (pathname && typeof pathname === 'string') {
                                     try {
                                         app[attr](pathname, callback);
-                                        Node.formatMessage(Node.logType.SYSTEM, 'ROUTE', chalk.bgGrey(pathname), '', { titleColor: 'yellow' });
+                                        Module.formatMessage(Module.logType.SYSTEM, 'ROUTE', chalk.bgGrey(pathname), '', { titleColor: 'yellow' });
                                         ++routes;
                                     }
                                     catch (err) {
-                                        Node.writeFail(['Unable to create route', pathname], err);
+                                        Module.writeFail(['Unable to create route', pathname], err);
                                     }
                                     found = true;
                                     break;
@@ -391,13 +408,14 @@ function applySettings(assets: ExternalAsset[]) {
         ENV ||= 'development';
         app.use('/', express.static(path.join(__dirname, 'html')));
         app.use('/dist', express.static(path.join(__dirname, 'dist')));
-        Node.writeFail('Routing not defined');
+        Module.writeFail('Routing not defined');
     }
 
+    FileManager.loadSettings(settings);
     permission = FileManager.getPermission(settings);
 
-    Node.formatMessage(Node.logType.SYSTEM, 'DISK', (permission.hasDiskRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (permission.hasDiskWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
-    Node.formatMessage(Node.logType.SYSTEM, 'UNC', (permission.hasUNCRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (permission.hasUNCWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
+    Module.formatMessage(Module.logType.SYSTEM, 'DISK', (permission.hasDiskRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (permission.hasDiskWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
+    Module.formatMessage(Module.logType.SYSTEM, 'UNC', (permission.hasUNCRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (permission.hasUNCWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
 
     if (argv.cors) {
         app.use(cors({ origin: argv.cors }));
@@ -409,7 +427,7 @@ function applySettings(assets: ExternalAsset[]) {
         argv.cors = typeof settings.cors.origin === 'string' ? settings.cors.origin : 'true';
     }
 
-    Node.formatMessage(Node.logType.SYSTEM, 'CORS', argv.cors ? chalk.green(argv.cors) : chalk.grey('disabled'), '', { titleColor: 'blue' });
+    Module.formatMessage(Module.logType.SYSTEM, 'CORS', argv.cors ? chalk.green(argv.cors) : chalk.grey('disabled'), '', { titleColor: 'blue' });
 
     if (argv.port) {
         PORT = argv.port.toString();
@@ -423,7 +441,7 @@ function applySettings(assets: ExternalAsset[]) {
     app.use(body_parser.json({ limit: settings.request_post_limit || '250mb' }));
     app.listen(PORT, () => {
         console.log('');
-        Node.formatMessage(Node.logType.SYSTEM, ENV!.toUpperCase(), 'Express server listening on port ' + chalk.bold(PORT), '', { titleColor: ENV!.startsWith('prod') ? 'green' : 'yellow' });
+        Module.formatMessage(Module.logType.SYSTEM, ENV!.toUpperCase(), 'Express server listening on port ' + chalk.bold(PORT), '', { titleColor: ENV!.startsWith('prod') ? 'green' : 'yellow' });
         console.log('');
     });
     process.env.NODE_ENV = ENV;
@@ -433,25 +451,34 @@ function applySettings(assets: ExternalAsset[]) {
 app.post('/api/v1/assets/copy', (req, res) => {
     const query = req.query;
     const dirname = path.normalize(query.to as string);
-    if (dirname && permission && FileManager.hasPermission(dirname, permission, res)) {
+    let error: Undef<true | ResponseData>;
+    if (dirname && permission && (error = FileManager.hasPermission(dirname, permission)) === true) {
         try {
             const body = req.body as RequestBody;
             const manager = new FileManager(
                 dirname,
                 body,
-                function(this: IFileManager) {
-                    res.json({ success: this.files.size > 0, files: Array.from(this.files) } as ResponseData);
-                    manager.formatMessage(Node.logType.NODE, 'WRITE', [dirname, this.files.size + ' files'], '');
+                (errors: string[]) => {
+                    const files = Array.from(manager.files);
+                    res.json({
+                        success: files.length > 0,
+                        files,
+                        error: parseErrors(errors)
+                    } as ResponseData);
+                    manager.formatMessage(Module.logType.NODE, 'WRITE', [dirname, files.length + ' files']);
                 },
                 settings
             );
-            installModules(manager, query as StringMap, body);
-            applySettings(manager.assets);
+            installModules.call(manager, query as StringMap, body);
+            applySettings.call(manager);
             manager.processAssets(query.empty === '1');
         }
         catch (err) {
-            res.json(Node.getResponseError('FILE: Unknown', (err as Error).toString()));
+            res.json(FileManager.responseError('FILE: Unknown', (err as Error).toString()));
         }
+    }
+    else if (error) {
+        res.json(error);
     }
 });
 
@@ -461,7 +488,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
     let dirname = path.join(__dirname, 'tmp', uuid.v4()),
         dirname_zip: string;
     try {
-        if (copy_to && permission && FileManager.hasPermission(dirname, permission, res)) {
+        if (copy_to && permission && FileManager.hasPermission(dirname, permission) === true) {
             dirname = copy_to;
         }
         else {
@@ -471,7 +498,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
         fs.mkdirpSync(dirname_zip);
     }
     catch (err) {
-        res.json(Node.getResponseError(`DIRECTORY: ${dirname}`, (err as Error).toString()));
+        res.json(FileManager.responseError(`DIRECTORY: ${dirname}`, (err as Error).toString()));
         return;
     }
     let append_to = query.append_to as string,
@@ -508,11 +535,12 @@ app.post('/api/v1/assets/archive', (req, res) => {
             const manager = new FileManager(
                 dirname,
                 body,
-                () => {
+                errors => {
                     const response: ResponseData = {
                         success: manager.files.size > 0,
                         zipname,
-                        files: Array.from(manager.files)
+                        files: Array.from(manager.files),
+                        error: parseErrors(errors)
                     };
                     const complete = (bytes: number) => {
                         if (bytes) {
@@ -525,33 +553,33 @@ app.post('/api/v1/assets/archive', (req, res) => {
                             response.success = false;
                         }
                         res.json(response);
-                        manager.formatMessage(Node.logType.NODE, 'WRITE', [response.zipname!, bytes + ' bytes']);
+                        manager.formatMessage(Module.logType.NODE, 'WRITE', [response.zipname!, bytes + ' bytes']);
                     };
                     if (!use7z) {
-                        const archive = archiver(format as archiver.Format, { zlib: { level: FileManager.moduleCompress().gzipLevel } });
-                        const output = fs.createWriteStream(zippath);
-                        output
-                            .on('close', () => {
-                                if (useGzip) {
-                                    const gz = format === 'tgz' ? zippath.replace(/tar$/, 'tgz') : zippath + '.gz';
-                                    FileManager.moduleCompress().createWriteStreamAsGzip(zippath, gz)
-                                        .on('finish', () => {
-                                            zippath = gz;
-                                            response.zipname = path.basename(gz);
-                                            complete(FileManager.getFileSize(gz));
-                                        })
-                                        .on('error', err => {
-                                            response.success = false;
-                                            writeFail('archive', format, err);
-                                            res.json(response);
-                                        });
-                                }
-                                else {
-                                    complete(archive.pointer());
-                                }
-                            })
-                            .on('error', err => writeFail('archive', format, err));
-                        archive.pipe(output);
+                        const archive = archiver(format as archiver.Format, { zlib: { level: Module.gzipLevel } });
+                        archive.pipe(
+                            fs.createWriteStream(zippath)
+                                .on('close', () => {
+                                    if (useGzip) {
+                                        const gz = format === 'tgz' ? zippath.replace(/tar$/, 'tgz') : zippath + '.gz';
+                                        Module.createWriteStreamAsGzip(zippath, gz)
+                                            .on('finish', () => {
+                                                zippath = gz;
+                                                response.zipname = path.basename(gz);
+                                                complete(FileManager.getFileSize(gz));
+                                            })
+                                            .on('error', err => {
+                                                response.success = false;
+                                                writeFail('archive', format, err);
+                                                res.json(response);
+                                            });
+                                    }
+                                    else {
+                                        complete(archive.pointer());
+                                    }
+                                })
+                                .on('error', err => writeFail('archive', format, err))
+                        );
                         archive.directory(dirname, false);
                         archive.finalize();
                     }
@@ -563,12 +591,12 @@ app.post('/api/v1/assets/archive', (req, res) => {
                 },
                 settings
             );
-            installModules(manager, query as StringMap, body);
-            applySettings(manager.assets);
+            installModules.call(manager, query as StringMap, body);
+            applySettings.call(manager);
             manager.processAssets();
         }
         catch (err) {
-            res.json(Node.getResponseError('FILE: Unknown', (err as Error).toString()));
+            res.json(FileManager.responseError('FILE: Unknown', (err as Error).toString()));
         }
     };
     if (append_to) {
@@ -576,26 +604,26 @@ app.post('/api/v1/assets/archive', (req, res) => {
             const match = /([^/\\]+)\.\w+?$/i.exec(append_to);
             if (match) {
                 const zippath = path.join(dirname_zip, match[0]);
-                const decompress = () => {
+                const extractFull = () => {
                     _7z.extractFull(zippath, dirname, { $bin: path7za, recursive: true })
                         .on('end', () => {
                             resumeThread(match[1]);
                         })
                         .on('error', err => {
-                            Node.writeFail(['Unable to decompress file', zippath], err);
+                            Module.writeFail(['Unable to decompress file', zippath], err);
                             resumeThread();
                         });
                 };
                 try {
-                    if (Node.isFileHTTP(append_to)) {
+                    if (FileManager.isFileHTTP(append_to)) {
                         const stream = fs.createWriteStream(zippath);
-                        stream.on('finish', decompress);
+                        stream.on('finish', extractFull);
                         let error: Undef<boolean>;
                         request(append_to)
                             .on('response', response => {
                                 const statusCode = response.statusCode;
                                 if (statusCode >= 300) {
-                                    writeFail('download', append_to, statusCode + ' ' + response.statusMessage);
+                                    writeFail('download', append_to, new Error(statusCode + ' ' + response.statusMessage));
                                     error = true;
                                 }
                             })
@@ -608,34 +636,34 @@ app.post('/api/v1/assets/archive', (req, res) => {
                             .pipe(stream);
                         return;
                     }
-                    else if (fs.existsSync(append_to = Node.resolveUri(append_to))) {
-                        if (Node.isFileUNC(append_to)) {
+                    else if (fs.existsSync(append_to = FileManager.resolveUri(append_to))) {
+                        if (FileManager.isFileUNC(append_to)) {
                             if (!permission || !permission.hasUNCRead()) {
-                                res.json(Node.getResponseError('OPTION: --unc-read', 'Reading from UNC shares is not enabled.'));
+                                res.json(FileManager.responseError('OPTION: --unc-read', 'Reading from UNC shares is not enabled.'));
                             }
                             else {
-                                fs.copyFile(append_to, zippath, decompress);
+                                fs.copyFile(append_to, zippath, extractFull);
                             }
                             return;
                         }
                         else if (path.isAbsolute(append_to)) {
                             if (!permission || !permission.hasDiskRead()) {
-                                res.json(Node.getResponseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
+                                res.json(FileManager.responseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
                             }
                             else {
-                                fs.copyFile(append_to, zippath, decompress);
+                                fs.copyFile(append_to, zippath, extractFull);
                             }
                             return;
                         }
                     }
-                    Node.writeFail('Archive not found', append_to);
+                    Module.writeFail('Archive not found', new Error(append_to));
                 }
                 catch (err) {
-                    Node.writeFail(zippath, err);
+                    Module.writeFail(zippath, err);
                 }
             }
             else {
-                Node.writeFail('Invalid archive format', append_to);
+                Module.writeFail('Invalid archive format', new Error(append_to));
             }
         }
         else {
@@ -676,23 +704,23 @@ app.get('/api/v1/loader/data/json', (req, res) => {
                 res.json({ success: true, data } as ResponseData);
             }
             else {
-                res.json(Node.getResponseError(`FILE: Unable to download (${uri})`, message as Error));
+                res.json(FileManager.responseError(message as Error, `FILE: Unable to download (${uri})`));
             }
         };
-        if (cache && JSON_CACHE[uri] || Node.isUUID(uri)) {
+        if (cache && JSON_CACHE[uri] || FileManager.isUUID(uri)) {
             const data = JSON_CACHE[uri];
             if (data) {
                 res.json({ success: true, data } as ResponseData);
             }
             else {
-                res.json(Node.getResponseError('CACHE: Could not locate key', uri));
+                res.json(FileManager.responseError(uri, 'CACHE: Could not locate key'));
             }
         }
-        else if (Node.isFileHTTP(uri)) {
+        else if (FileManager.isFileHTTP(uri)) {
             request(uri, (err, response) => loadContent(err, response.body));
         }
-        else if (permission && fs.existsSync(uri = Node.resolveUri(uri))) {
-            if (Node.isFileUNC(uri)) {
+        else if (permission && fs.existsSync(uri = FileManager.resolveUri(uri))) {
+            if (FileManager.isFileUNC(uri)) {
                 valid = permission.hasUNCRead();
             }
             else {
@@ -706,7 +734,7 @@ app.get('/api/v1/loader/data/json', (req, res) => {
             valid = false;
         }
         if (!valid) {
-            res.json(Node.getResponseError('FILE: Unknown', uri));
+            res.json(FileManager.responseError('FILE: Unknown', uri));
         }
     }
 });
@@ -720,7 +748,7 @@ app.get('/api/v1/loader/data/blob', (req, res) => {
         }
         res.sendFile(uri, err => {
             if (err) {
-                Node.writeFail(['Unable to send file', uri], err);
+                Module.writeFail(['Unable to send file', uri], err);
             }
         });
     }

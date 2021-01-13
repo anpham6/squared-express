@@ -27,6 +27,7 @@
   "compress": {
     "gzip_level": 9,
     "brotli_quality": 11,
+    "chunk_size": 0,
     "tinify_api_key": "",
     "7za_bin": ""
   },
@@ -128,7 +129,9 @@
     }
   },
   "image": {
-    "handler": "@squared-functions/image/jimp"
+    "handler": "@squared-functions/image/jimp",
+    "unknown": "",
+    "webp": ""
   },
   "watch": {
     "interval": 200
