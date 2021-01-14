@@ -1,4 +1,4 @@
-import type { ExtendedSettings, IFileManager, IPermission, ImageConstructor, RequestBody, Settings } from '@squared-functions/types';
+import type { DocumentConstructor, ExtendedSettings, IFileManager, IPermission, ImageConstructor, RequestBody, Settings } from '@squared-functions/types';
 import type { ResponseData } from '@squared-functions/types/lib/squared';
 import type { IRoute } from 'express';
 import type { CorsOptions } from 'cors';
@@ -52,6 +52,7 @@ interface Route extends Partial<RouteHandler> {
     mount?: string;
     path?: string;
     handler?: string | string[];
+    document?: string;
 }
 
 type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
@@ -337,20 +338,75 @@ function parseErrors(errors: string[]) {
             'unsubscribe'
         ];
         let mounts = 0,
-            routes = 0;
+            routes = 0,
+            workspace = 0;
         for (const item of [settings.routing['__SHARED__'], settings.routing[ENV]]) {
             if (Array.isArray(item)) {
                 for (const route of item) {
-                    const { path: dirname, mount } = route;
-                    if (dirname && mount) {
-                        const pathname = path.join(__dirname, mount);
-                        try {
-                            app.use(dirname, express.static(pathname));
-                            Module.formatMessage(Module.logType.SYSTEM, 'MOUNT', `${chalk.bgGrey(pathname)} ${chalk.yellow('->')} ${chalk.bold(dirname)}`, '', { titleColor: 'yellow' });
-                            ++mounts;
+                    const { mount, path: dirname, document } = route;
+                    if (mount && dirname) {
+                        let data: Undef<StandardMap>;
+                        if (document && (data = settings.document?.[document])) {
+                            const { handler, settings: plugins } = data;
+                            if (handler && plugins) {
+                                try {
+                                    const baseDir = path.resolve(mount);
+                                    if (fs.lstatSync(baseDir).isDirectory()) {
+                                        try {
+                                            const target = FileManager.toPosix((dirname[0] !== '/' ? '/' : '') + dirname);
+                                            const instance = new (require(handler) as DocumentConstructor)({} as RequestBody, data);
+                                            app.get(target + '/*', async (req, res) => {
+                                                const url = new URL(req.protocol + '://' + req.hostname + req.originalUrl);
+                                                const params = new URLSearchParams(url.search);
+                                                const type = params.get('type');
+                                                const format = params.get('format');
+                                                const mime = params.get('mime');
+                                                if (mime) {
+                                                    res.setHeader('Content-Type', mime);
+                                                }
+                                                let content = '';
+                                                if (type && format && plugins[type]) {
+                                                    const uri = path.join(baseDir, url.pathname.substring(target.length));
+                                                    if (fs.existsSync(uri)) {
+                                                        const result = await instance.transform(type, format, fs.readFileSync(uri, 'utf8'));
+                                                        if (result) {
+                                                            content = result[0];
+                                                        }
+                                                    }
+                                                }
+                                                res.send(content);
+                                            });
+                                            Module.formatMessage(Module.logType.SYSTEM, 'BUILD', `${chalk.bgGrey(baseDir)} ${chalk.yellow('->')} ${chalk.bold(target)}`, '', { titleColor: 'yellow' });
+                                            ++workspace;
+                                        }
+                                        catch (err) {
+                                            Module.writeFail(['Unable to load Document handler', document], err);
+                                        }
+                                    }
+                                }
+                                catch (err) {
+                                    Module.writeFail(['Unable to mount directory', document], err);
+                                }
+                            }
+                            else {
+                                if (!handler) {
+                                    Module.writeFail(['Document handler not found', document]);
+                                }
+                                if (!plugins) {
+                                    Module.writeFail(['Document settings not found', document]);
+                                }
+                            }
                         }
-                        catch (err) {
-                            Module.writeFail(['Unable to mount directory', dirname], err);
+                        else {
+                            const pathname = path.join(__dirname, mount);
+                            try {
+                                app.use(dirname, express.static(pathname));
+                                Module.formatMessage(Module.logType.SYSTEM, 'MOUNT', `${chalk.bgGrey(pathname)} ${chalk.yellow('->')} ${chalk.bold(dirname)}`, '', { titleColor: 'yellow' });
+                                ++mounts;
+                            }
+                            catch (err) {
+                                Module.writeFail(['Unable to mount directory', dirname], err);
+                            }
                         }
                     }
                     else {
@@ -398,10 +454,13 @@ function parseErrors(errors: string[]) {
             }
         }
         if (mounts) {
-            console.log(`\n${chalk.bold(mounts)} ${mounts === 1 ? 'directory was' : 'directories were'} mounted.${routes ? '' : '\n'}`);
+            console.log(`\n${chalk.bold(mounts)} ${mounts === 1 ? 'directory was' : 'directories were'} mounted.` + (routes || workspace ? '' : '\n'));
         }
         if (routes) {
-            console.log(`\n${chalk.bold(routes)} ${routes === 1 ? 'route was' : 'routes were'} created.\n`);
+            console.log(`\n${chalk.bold(routes)} ${routes === 1 ? 'route was' : 'routes were'} created.` + (workspace ? '' : '\n'));
+        }
+        if (workspace) {
+            console.log(`\n${chalk.bold(workspace)} ${workspace === 1 ? 'workspace was' : 'workspaces were'} mounted.\n`);
         }
     }
     else {
@@ -745,19 +804,14 @@ app.get('/api/v1/loader/data/blob', (req, res) => {
     if (data) {
         const cache = req.query.cache;
         const uri = data.uri;
-        if (!cache) {
-            res.download(uri, data.filename);
+        if (cache === '0') {
+            delete BLOB_CACHE[key];
         }
-        else {
-            if (cache === '0') {
-                delete BLOB_CACHE[key];
+        res.download(uri, data.filename, err => {
+            if (err) {
+                Module.writeFail(['Unable to send file', uri], err);
             }
-            res.sendFile(uri, err => {
-                if (err) {
-                    Module.writeFail(['Unable to send file', uri], err);
-                }
-            });
-        }
+        });
     }
     else {
         res.send(null);
