@@ -1,4 +1,4 @@
-import type { DocumentConstructor, ExtendedSettings, IFileManager, IPermission, ImageConstructor, RequestBody, Settings } from '@squared-functions/types';
+import type { DocumentConstructor, ExtendedSettings, IFileManager, IPermission, ImageConstructor, Internal, RequestBody, Settings } from '@squared-functions/types';
 import type { ResponseData } from '@squared-functions/types/lib/squared';
 import type { IRoute } from 'express';
 import type { CorsOptions } from 'cors';
@@ -17,6 +17,7 @@ import yaml = require('js-yaml');
 import chalk = require('chalk');
 
 import FileManager = require('@squared-functions/file-manager');
+import Document = require('@squared-functions/document');
 
 interface ServeSettings extends Settings {
     env?: string;
@@ -54,6 +55,9 @@ interface Route extends Partial<RouteHandler> {
     handler?: string | string[];
     document?: string;
 }
+
+type SourceMap = Internal.Document.SourceMap;
+type TransformOutput = Internal.Document.TransformOutput;
 
 type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
 
@@ -354,7 +358,7 @@ function parseErrors(errors: string[]) {
                                     if (fs.lstatSync(baseDir).isDirectory()) {
                                         try {
                                             const target = FileManager.toPosix((dirname[0] !== '/' ? '/' : '') + dirname);
-                                            const instance = new (require(handler) as DocumentConstructor)({} as RequestBody, data);
+                                            const instance = new (require(handler) as DocumentConstructor)(data);
                                             app.get(target + '/*', async (req, res) => {
                                                 const url = new URL(req.protocol + '://' + req.hostname + req.originalUrl);
                                                 const params = new URLSearchParams(url.search);
@@ -420,9 +424,32 @@ function parseErrors(errors: string[]) {
                                                             }
                                                             while (true);
                                                         });
-                                                        const result = await instance.transform(type, format, fs.readFileSync(sourceFile, 'utf8'), { sourceFile, external });
+                                                        const options: TransformOutput = { sourceFile, external };
+                                                        const code = fs.readFileSync(sourceFile, 'utf8');
+                                                        try {
+                                                            const sourceMapResolve = require('source-map-resolve');
+                                                            try {
+                                                                const output = sourceMapResolve.resolveSourceMapSync(code, url.pathname, fs.readFileSync) as PlainObject; // eslint-disable-line @typescript-eslint/no-unsafe-call
+                                                                if (output) {
+                                                                    const map = output.map as SourceMap;
+                                                                    const sources = map.sources;
+                                                                    options.sourcesRelativeTo = path.dirname(sourceFile);
+                                                                    for (let i = 0; i < sources.length; ++i) {
+                                                                        sources[i] = path.resolve(options.sourcesRelativeTo, sources[i]);
+                                                                    }
+                                                                    options.sourceMap = Document.createSourceMap(code);
+                                                                    options.sourceMap.nextMap('unknown', map, code);
+                                                                }
+                                                            }
+                                                            catch (err) {
+                                                                Module.writeFail(['Unable to parse source map', document], err);
+                                                            }
+                                                        }
+                                                        catch {
+                                                        }
+                                                        const result = await instance.transform(type, code, format, options);
                                                         if (result) {
-                                                            content = result[0];
+                                                            content = result.code;
                                                         }
                                                     }
                                                 }

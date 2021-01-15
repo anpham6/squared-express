@@ -88,7 +88,7 @@ https://expressjs.com/en/guide/routing.html
 }
 
 // index-html.js
-function (req, res) {
+function (req, res) { // synchronous
     res.send('<html><body><!-- content --></body></html>');
 }
 
@@ -136,8 +136,14 @@ Text based documents which require a preprocessor before being rendered can have
           },
           "bundle": {
             "output": {
-              "format": "iife",
-              "sourcemap": "inline"  // Only inline source maps are supported
+              "format": "iife"
+            }
+          },
+          "bundle-es6": {
+            "plugins": ["rollup-plugin-sourcemaps"], // npm i rollup-plugin-sourcemaps
+            "output": {
+              "format": "es",
+              "sourcemap": "inline" // Only inline source maps are supported
             }
           }
         }
@@ -157,15 +163,19 @@ Text based documents which require a preprocessor before being rendered can have
         }
       }
     }
+  }
 }
 ```
-NPM plugins have to be installed manually and are usually custom written. There are only a few built-in transformers from [squared-functions](https://github.com/anpham6/squared-functions#readme).
+* Source map support (js/css): npm i source-map-resolve
+
+NPM plugins have to be installed manually and the transfomer routine is usually custom written. There are a few built-in example transformers as part of [squared-functions](https://github.com/anpham6/squared-functions#readme).
 
 Evaluated functions in configuration files or HTML templates are synchronous. Routines that are asynchronous require NPM hosted packages and are treated similarly to a built-in transformer.
 
 ```html
 <html>
 <head>
+    <script>var android = null;</script> <!-- predeclare ESM globals -->
     <!-- ../local/src/util.ts -->
     <script type="text/javascript" src="/workspace-1/src/util.ts?format=typescript&type=js&compilerOptions.target=es2017"></script> <!-- nested external properties use object dot syntax -->
 
@@ -177,11 +187,19 @@ Evaluated functions in configuration files or HTML templates are synchronous. Ro
 
     <!-- ../local/html/css/template-2.sass -->
     <link rel="stylesheet" type="text/css" href="/workspace-2/css/template-2.sass?format=demo%2Bdemo-2&type=css&mime=text/css" /> <!-- "+" chain symbol (demo+demo-2) is URL encoded as "%2B" -->
+
+    <!-- ../local/build/framework/android/src/main.js -->
+    <script type="module">
+        import appBase from '/build/framework/android/src/main.js?format=bundle-es6&type=js&mime=text/javascript'; // "mime" is required for type="module"
+        android = appBase;
+    </script>
 </head>
 <body>
 </body>
 </html>
 ```
+You can debug TypeScript files directly in Visual Code with the Chrome extension using the "tsc" --outDir &lt;workspace&gt; and --inlineSourceMap flags. It is more efficient to debug the "js" output files and to also use the --watch flag for recompilation.
+
 NOTE: To use "format" as an external property then it has to be prefixed as "~format".
 
 ### API Routes
