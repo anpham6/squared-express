@@ -130,16 +130,21 @@ Text based documents which require a preprocessor before being rendered can have
         "rollup": { // built-in transformer
           "typescript": { // query param: "format"
             "output": {
-              "format": "es",
-              "sourcemap": "inline"  // Only inline source maps are supported
+              "format": "iife"
             },
             "plugins": [["@rollup/plugin-typescript", { lib: ["es5", "es6", "dom"], target: "es5" }], "rollup-plugin-terser"] // npm i @rollup/plugin-typescript && npm i rollup-plugin-terser
+          },
+          "bundle": {
+            "output": {
+              "format": "iife",
+              "sourcemap": "inline"  // Only inline source maps are supported
+            }
           }
         }
       },
       "css": {
         "sass": { // NPM package name
-          "demo": "function (context, value, options) { return context.renderSync({ ...options, data: value }, functions: {}); }" // synchronous
+          "demo": "function (context, value, output) { return context.renderSync({ ...output.config, data: value }, functions: {}); }" // synchronous
           "demo-output": { // function param: "options" (optional)
             "indentedSyntax": true,
             "outputStyle": "compressed"
@@ -162,10 +167,13 @@ Evaluated functions in configuration files or HTML templates are synchronous. Ro
 <html>
 <head>
     <!-- ../local/src/util.ts -->
-    <script type="text/javascript" src="/workspace-1/src/util.ts?format=typescript&type=js"></script>
+    <script type="text/javascript" src="/workspace-1/src/util.ts?format=typescript&type=js&compilerOptions.target=es2017"></script> <!-- nested external properties use object dot syntax -->
+
+    <!-- ../local/build/main.js -->
+    <script type="text/javascript" src="/workspace-1/build/main.js?format=bundle&type=js&name=app"></script> <!-- query params (&name=app) are sent to plugin as external properties -->
 
     <!-- ../local/html/template-1.sass -->
-    <link rel="stylesheet" type="text/css" href="/workspace-2/template-1.sass?format=demo&type=css&mime=text/css" /> <!-- "mime" is optional except for some file types -->
+    <link rel="stylesheet" type="text/css" href="/workspace-2/template-1.sass?format=demo&type=css&mime=text/css" /> <!-- "mime" is usually optional except certain file types -->
 
     <!-- ../local/html/css/template-2.sass -->
     <link rel="stylesheet" type="text/css" href="/workspace-2/css/template-2.sass?format=demo%2Bdemo-2&type=css&mime=text/css" /> <!-- "+" chain symbol (demo+demo-2) is URL encoded as "%2B" -->
@@ -174,6 +182,7 @@ Evaluated functions in configuration files or HTML templates are synchronous. Ro
 </body>
 </html>
 ```
+NOTE: To use "format" as an external property then it has to be prefixed as "~format".
 
 ### API Routes
 

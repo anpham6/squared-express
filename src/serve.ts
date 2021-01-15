@@ -366,9 +366,61 @@ function parseErrors(errors: string[]) {
                                                 }
                                                 let content = '';
                                                 if (type && format && plugins[type]) {
-                                                    const uri = path.join(baseDir, url.pathname.substring(target.length));
-                                                    if (fs.existsSync(uri)) {
-                                                        const result = await instance.transform(type, format, fs.readFileSync(uri, 'utf8'));
+                                                    const sourceFile = path.join(baseDir, url.pathname.substring(target.length));
+                                                    if (fs.existsSync(sourceFile)) {
+                                                        const external: PlainObject = {};
+                                                        params.forEach((value, key) => {
+                                                            switch (key) {
+                                                                case 'type':
+                                                                case 'format':
+                                                                case 'mime':
+                                                                    return;
+                                                                case '~type':
+                                                                case '~format':
+                                                                case '~mime':
+                                                                    key = key.substring(1);
+                                                                    break;
+                                                            }
+                                                            const attrs = key.split('.');
+                                                            let current = external;
+                                                            do {
+                                                                const name = attrs.shift()!;
+                                                                if (attrs.length === 0) {
+                                                                    switch (value) {
+                                                                        case 'true':
+                                                                            current[name] = true;
+                                                                            break;
+                                                                        case 'false':
+                                                                            current[name] = false;
+                                                                            break;
+                                                                        case 'undefined':
+                                                                            current[name] = undefined;
+                                                                            break;
+                                                                        case 'null':
+                                                                            current[name] = null;
+                                                                            break;
+                                                                        case '{}':
+                                                                            current[name] = {};
+                                                                            break;
+                                                                        case '[]':
+                                                                            current[name] = [];
+                                                                            break;
+                                                                        default:
+                                                                            current[name] = !isNaN(+value) ? +value : value;
+                                                                            break;
+                                                                    }
+                                                                    break;
+                                                                }
+                                                                else {
+                                                                    if (!current[name] || typeof current[name] !== 'object') {
+                                                                        current[name] = {};
+                                                                    }
+                                                                    current = current[name] as PlainObject;
+                                                                }
+                                                            }
+                                                            while (true);
+                                                        });
+                                                        const result = await instance.transform(type, format, fs.readFileSync(sourceFile, 'utf8'), { sourceFile, external });
                                                         if (result) {
                                                             content = result[0];
                                                         }
