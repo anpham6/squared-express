@@ -51,6 +51,7 @@ interface YargsArgv {
     env?: string;
     port?: number;
     cors?: string;
+    routing?: string;
 }
 
 interface Route extends Partial<RouteHandler> {
@@ -227,7 +228,13 @@ function parseErrors(errors: string[]) {
             description: 'Enable CORS access to <origin|"*">',
             nargs: 1
         })
-        .epilogue('For more information and source: https://github.com/anpham6/squared')
+        .option('routing', {
+            alias: 'a',
+            type: 'string',
+            description: 'Additional routing namespaces',
+            nargs: 1
+        })
+        .epilogue('For more information and source: https://github.com/anpham6/squared-express')
         .argv as YargsArgv;
 
     let { NODE_ENV: ENV, PORT } = process.env;
@@ -343,11 +350,24 @@ function parseErrors(errors: string[]) {
             'unlock',
             'unsubscribe'
         ];
-        let mounts = 0,
-            routes = 0,
-            workspace = 0;
-        for (const item of [settings.routing.common, settings.routing[ENV]]) {
-            if (Array.isArray(item)) {
+        const mounted: ObjectMap<Set<string>> = {};
+        const routing: [string, Route[]][] = [['common', settings.routing.common], [ENV, settings.routing[ENV]]].filter(mount => Array.isArray(mount[1])) as [string, Route[]][];
+        const addMount = (method: keyof RouteHandler | "static", value: string) => (mounted[method] ||= new Set()).add(value);
+        const wasMounted = (method: keyof RouteHandler | "static", value: string) => mounted[method] && mounted[method].has(value);
+        if (argv.routing) {
+            for (let route of argv.routing.split(',')) {
+                const item = settings.routing[route = route.trim()];
+                if (Array.isArray(item) && !routing.find(mount => mount[0] === route)) {
+                    routing.push([route, item]);
+                }
+            }
+        }
+        if (routing.length) {
+            console.log();
+            for (const [namespace, item] of routing) {
+                let mounts = 0,
+                    routes = 0,
+                    workspaces = 0;
                 for (const route of item) {
                     const { mount, path: dirname, document } = route;
                     if (mount && dirname) {
@@ -355,124 +375,128 @@ function parseErrors(errors: string[]) {
                         if (document && (data = settings.document?.[document])) {
                             const { handler, settings: plugins } = data;
                             if (handler && plugins) {
-                                try {
-                                    const baseDir = path.resolve(mount);
-                                    if (fs.lstatSync(baseDir).isDirectory()) {
-                                        try {
-                                            const target = FileManager.toPosix((dirname[0] !== '/' ? '/' : '') + dirname);
-                                            const instance = new (require(handler) as DocumentConstructor)(data);
-                                            app.get(target + '/*', async (req, res) => {
-                                                const url = new URL(req.protocol + '://' + req.hostname + req.originalUrl);
-                                                const params = new URLSearchParams(url.search);
-                                                const type = params.get('type');
-                                                const format = params.get('format');
-                                                const sourceFile = path.join(baseDir, url.pathname.substring(target.length));
-                                                const contentType = params.get('mime') || mime.lookup(url.pathname);
-                                                let content = '';
-                                                if (fs.existsSync(sourceFile)) {
-                                                    if (type && format && plugins[type]) {
-                                                        const external: PlainObject = {};
-                                                        params.forEach((value, key) => {
-                                                            switch (key) {
-                                                                case 'type':
-                                                                case 'format':
-                                                                case 'mime':
-                                                                    return;
-                                                                case '~type':
-                                                                case '~format':
-                                                                case '~mime':
-                                                                    key = key.substring(1);
-                                                                    break;
-                                                            }
-                                                            const attrs = key.split('.');
-                                                            let current = external;
-                                                            do {
-                                                                const name = attrs.shift()!;
-                                                                if (attrs.length === 0) {
-                                                                    switch (value) {
-                                                                        case 'true':
-                                                                            current[name] = true;
-                                                                            break;
-                                                                        case 'false':
-                                                                            current[name] = false;
-                                                                            break;
-                                                                        case 'undefined':
-                                                                            current[name] = undefined;
-                                                                            break;
-                                                                        case 'null':
-                                                                            current[name] = null;
-                                                                            break;
-                                                                        case '{}':
+                                const target = FileManager.toPosix((dirname[0] !== '/' ? '/' : '') + dirname);
+                                const pathname = target + '/*';
+                                if (!wasMounted('get', pathname)) {
+                                    try {
+                                        const baseDir = path.resolve(mount);
+                                        if (fs.lstatSync(baseDir).isDirectory()) {
+                                            try {
+                                                const instance = new (require(handler) as DocumentConstructor)(data);
+                                                app.get(pathname, async (req, res) => {
+                                                    const url = new URL(req.protocol + '://' + req.hostname + req.originalUrl);
+                                                    const params = new URLSearchParams(url.search);
+                                                    const type = params.get('type');
+                                                    const format = params.get('format');
+                                                    const sourceFile = path.join(baseDir, url.pathname.substring(target.length));
+                                                    const contentType = params.get('mime') || mime.lookup(url.pathname);
+                                                    let content = '';
+                                                    if (fs.existsSync(sourceFile)) {
+                                                        if (type && format && plugins[type]) {
+                                                            const external: PlainObject = {};
+                                                            params.forEach((value, key) => {
+                                                                switch (key) {
+                                                                    case 'type':
+                                                                    case 'format':
+                                                                    case 'mime':
+                                                                        return;
+                                                                    case '~type':
+                                                                    case '~format':
+                                                                    case '~mime':
+                                                                        key = key.substring(1);
+                                                                        break;
+                                                                }
+                                                                const attrs = key.split('.');
+                                                                let current = external;
+                                                                do {
+                                                                    const name = attrs.shift()!;
+                                                                    if (attrs.length === 0) {
+                                                                        switch (value) {
+                                                                            case 'true':
+                                                                                current[name] = true;
+                                                                                break;
+                                                                            case 'false':
+                                                                                current[name] = false;
+                                                                                break;
+                                                                            case 'undefined':
+                                                                                current[name] = undefined;
+                                                                                break;
+                                                                            case 'null':
+                                                                                current[name] = null;
+                                                                                break;
+                                                                            case '{}':
+                                                                                current[name] = {};
+                                                                                break;
+                                                                            case '[]':
+                                                                                current[name] = [];
+                                                                                break;
+                                                                            default:
+                                                                                current[name] = !isNaN(+value) ? +value : value;
+                                                                                break;
+                                                                        }
+                                                                        break;
+                                                                    }
+                                                                    else {
+                                                                        if (!current[name] || typeof current[name] !== 'object') {
                                                                             current[name] = {};
-                                                                            break;
-                                                                        case '[]':
-                                                                            current[name] = [];
-                                                                            break;
-                                                                        default:
-                                                                            current[name] = !isNaN(+value) ? +value : value;
-                                                                            break;
+                                                                        }
+                                                                        current = current[name] as PlainObject;
                                                                     }
-                                                                    break;
                                                                 }
-                                                                else {
-                                                                    if (!current[name] || typeof current[name] !== 'object') {
-                                                                        current[name] = {};
-                                                                    }
-                                                                    current = current[name] as PlainObject;
-                                                                }
-                                                            }
-                                                            while (true);
-                                                        });
-                                                        const options: TransformOutput = { sourceFile, external };
-                                                        const code = fs.readFileSync(sourceFile, 'utf8');
-                                                        try {
-                                                            const sourceMapResolve = require('source-map-resolve');
+                                                                while (true);
+                                                            });
+                                                            const options: TransformOutput = { sourceFile, external };
+                                                            const code = fs.readFileSync(sourceFile, 'utf8');
                                                             try {
-                                                                const output = sourceMapResolve.resolveSourceMapSync(code, url.pathname, fs.readFileSync) as PlainObject; // eslint-disable-line @typescript-eslint/no-unsafe-call
-                                                                if (output) {
-                                                                    const map = output.map as SourceMap;
-                                                                    const sources = map.sources;
-                                                                    options.sourcesRelativeTo = path.dirname(sourceFile);
-                                                                    for (let i = 0; i < sources.length; ++i) {
-                                                                        sources[i] = path.resolve(options.sourcesRelativeTo, sources[i]);
+                                                                const sourceMapResolve = require('source-map-resolve');
+                                                                try {
+                                                                    const output = sourceMapResolve.resolveSourceMapSync(code, url.pathname, fs.readFileSync) as PlainObject; // eslint-disable-line @typescript-eslint/no-unsafe-call
+                                                                    if (output) {
+                                                                        const map = output.map as SourceMap;
+                                                                        const sources = map.sources;
+                                                                        options.sourcesRelativeTo = path.dirname(sourceFile);
+                                                                        for (let i = 0; i < sources.length; ++i) {
+                                                                            sources[i] = path.resolve(options.sourcesRelativeTo, sources[i]);
+                                                                        }
+                                                                        const sourceMap = Document.createSourceMap(code);
+                                                                        sourceMap.streamingContent = true;
+                                                                        sourceMap.nextMap('unknown', code, map);
+                                                                        options.sourceMap = sourceMap;
                                                                     }
-                                                                    const sourceMap = Document.createSourceMap(code);
-                                                                    sourceMap.streamingContent = true;
-                                                                    sourceMap.nextMap('unknown', code, map);
-                                                                    options.sourceMap = sourceMap;
+                                                                }
+                                                                catch (err) {
+                                                                    Module.writeFail(['Unable to parse source map', document], err);
                                                                 }
                                                             }
-                                                            catch (err) {
-                                                                Module.writeFail(['Unable to parse source map', document], err);
+                                                            catch {
+                                                            }
+                                                            const result = await instance.transform(type, code, format, options);
+                                                            if (result) {
+                                                                const sourceMap = options.sourceMap;
+                                                                content = sourceMap && sourceMap.output.size && sourceMap.code === result.code ? Document.writeSourceMap(sourceFile, sourceMap) : result.code;
                                                             }
                                                         }
-                                                        catch {
-                                                        }
-                                                        const result = await instance.transform(type, code, format, options);
-                                                        if (result) {
-                                                            const sourceMap = options.sourceMap;
-                                                            content = sourceMap && sourceMap.output.size && sourceMap.code === result.code ? Document.writeSourceMap(sourceFile, sourceMap) : result.code;
+                                                        else {
+                                                            content = fs.readFileSync(sourceFile, 'utf8');
                                                         }
                                                     }
-                                                    else {
-                                                        content = fs.readFileSync(sourceFile, 'utf8');
+                                                    if (contentType) {
+                                                        res.setHeader('Content-Type', contentType);
                                                     }
-                                                }
-                                                if (contentType) {
-                                                    res.setHeader('Content-Type', contentType);
-                                                }
-                                                res.send(content);
-                                            });
-                                            Module.formatMessage(Module.logType.SYSTEM, 'BUILD', `${chalk.bgGrey(baseDir)} ${chalk.yellow('->')} ${chalk.bold(target)}`, '', { titleColor: 'yellow' });
-                                            ++workspace;
-                                        }
-                                        catch (err) {
-                                            Module.writeFail(['Unable to load Document handler', document], err);
+                                                    res.send(content);
+                                                });
+                                                Module.formatMessage(Module.logType.SYSTEM, 'BUILD', `${chalk.bgGrey(baseDir)} ${chalk.yellow('->')} ${chalk.bold(target)}`, '', { titleColor: 'yellow' });
+                                                addMount('get', pathname);
+                                                ++workspaces;
+                                            }
+                                            catch (err) {
+                                                Module.writeFail(['Unable to load Document handler', document], err);
+                                            }
                                         }
                                     }
-                                }
-                                catch (err) {
-                                    Module.writeFail(['Unable to mount directory', document], err);
+                                    catch (err) {
+                                        Module.writeFail(['Unable to mount directory', document], err);
+                                    }
                                 }
                             }
                             else {
@@ -484,15 +508,16 @@ function parseErrors(errors: string[]) {
                                 }
                             }
                         }
-                        else {
-                            const pathname = path.join(__dirname, mount);
+                        else if (!wasMounted('static', dirname)) {
                             try {
+                                const pathname = path.join(__dirname, mount);
                                 app.use(dirname, express.static(pathname));
-                                Module.formatMessage(Module.logType.SYSTEM, 'MOUNT', `${chalk.bgGrey(pathname)} ${chalk.yellow('->')} ${chalk.bold(dirname)}`, '', { titleColor: 'yellow' });
+                                Module.formatMessage(Module.logType.SYSTEM, 'STATIC', `${chalk.bgGrey(pathname)} ${chalk.yellow('->')} ${chalk.bold(dirname)}`, '', { titleColor: 'yellow' });
+                                addMount('static', dirname);
                                 ++mounts;
                             }
                             catch (err) {
-                                Module.writeFail(['Unable to mount directory', dirname], err);
+                                Module.writeFail(['Unable to mount static directory', dirname], err);
                             }
                         }
                     }
@@ -519,10 +544,11 @@ function parseErrors(errors: string[]) {
                             let found = false;
                             for (const attr of expressMethods) {
                                 const pathname = route[attr];
-                                if (pathname && typeof pathname === 'string') {
+                                if (pathname && typeof pathname === 'string' && !wasMounted(attr, pathname)) {
                                     try {
                                         app[attr](pathname, callback);
                                         Module.formatMessage(Module.logType.SYSTEM, 'ROUTE', chalk.bgGrey(pathname), '', { titleColor: 'yellow' });
+                                        addMount(attr, pathname);
                                         ++routes;
                                     }
                                     catch (err) {
@@ -538,16 +564,15 @@ function parseErrors(errors: string[]) {
                         }
                     }
                 }
+                if (mounts > 0 || routes > 0 || workspaces > 0) {
+                    console.log();
+                    Module.formatMessage(Module.logType.SYSTEM, ' READY ', [namespace, `static: ${mounts} / route: ${routes}`], workspaces ? 'workspace: ' + workspaces : null, { titleColor: 'white', titleBgColor: 'bgGreen' });
+                }
+                else {
+                    Module.formatMessage(Module.logType.SYSTEM, ' CHECK ', [namespace, 'No routes were mounted'], null, { titleColor: 'grey', titleBgColor: 'bgYellow' });
+                }
+                console.log();
             }
-        }
-        if (mounts) {
-            console.log(`\n${chalk.bold(mounts)} ${mounts === 1 ? 'directory was' : 'directories were'} mounted.` + (routes || workspace ? '' : '\n'));
-        }
-        if (routes) {
-            console.log(`\n${chalk.bold(routes)} ${routes === 1 ? 'route was' : 'routes were'} created.` + (workspace ? '' : '\n'));
-        }
-        if (workspace) {
-            console.log(`\n${chalk.bold(workspace)} ${workspace === 1 ? 'workspace was' : 'workspaces were'} mounted.\n`);
         }
     }
     else {
@@ -571,7 +596,7 @@ function parseErrors(errors: string[]) {
     else if (corsOptions = settings.cors) {
         origin = corsOptions.origin as string;
     }
-    if (corsOptions) {
+    if (origin) {
         app.use(cors(corsOptions));
         app.options('*', cors());
         if (typeof origin !== 'string') {
