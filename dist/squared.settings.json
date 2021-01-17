@@ -10,7 +10,7 @@
     "development": "3000"
   },
   "routing": {
-    "__SHARED__": [
+    "common": [
       { "mount": "html", "path": "/" },
       { "mount": "dist", "path": "/dist" }
     ],

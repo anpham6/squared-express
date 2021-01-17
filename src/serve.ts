@@ -346,7 +346,7 @@ function parseErrors(errors: string[]) {
         let mounts = 0,
             routes = 0,
             workspace = 0;
-        for (const item of [settings.routing['__SHARED__'], settings.routing[ENV]]) {
+        for (const item of [settings.routing.common, settings.routing[ENV]]) {
             if (Array.isArray(item)) {
                 for (const route of item) {
                     const { mount, path: dirname, document } = route;

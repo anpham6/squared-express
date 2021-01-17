@@ -74,7 +74,7 @@ https://expressjs.com/en/guide/routing.html
 
 {
   "routing": {
-    "__SHARED__": [
+    "common": [
       { "mount": "html", "path": "/" },
       { "mount": "dist", "path": "/dist" },
       { "get": "/index.html", "handler": "./index-html.js" }, // handler file paths are relative and start with either './' OR '../'
