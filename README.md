@@ -35,14 +35,14 @@ const data = {
     }
 };
 
-// android: Project based
+// Project based (android)
 squared.save(); // Uses defaults from settings
 
 squared.saveAs('archive1.zip', data); // optional: "data"
 squared.appendTo('/path/project.zip');
 squared.copyTo('/path/project');
 
-// chrome: File based
+// File based (chrome)
 squared.saveFiles('archive.7z', data); // required: "data"
 squared.appendFiles('http://hostname/project.zip', data);
 squared.copyFiles('/path/www', data);
@@ -78,7 +78,7 @@ https://expressjs.com/en/guide/routing.html
       { "mount": "html", "path": "/" },
       { "mount": "dist", "path": "/dist" },
       { "get": "/index.html", "handler": "./index-html.js" }, // handler file paths are relative and start with either './' OR '../'
-      { "all": "/route/pathname", "handler": ["./handler-1.js", "./handler-2.js"] },
+      { "all": "/route/pathname", "handler": ["./handler-1.js", "./handler-2.js", "npm-package-name"] },
       { "handler": "./middleware.js" }
     ],
     "production": [
@@ -99,7 +99,12 @@ function (req, res, next) {
 }
 
 // handler-2.js
-function (req, res) { /* handler-2: code */ }
+function (req, res, next) { /* handler-2: code */ }
+
+// NPM package
+module.exports = function express(req, res) { // function name has to be "express"
+    /* npm-package-name: code */
+}
 
 // middleware.js
 function () {
@@ -135,15 +140,17 @@ Text based documents which require a preprocessor before being rendered can have
             "plugins": [["@rollup/plugin-typescript", { lib: ["es5", "es6", "dom"], target: "es5" }], "rollup-plugin-terser"] // npm i @rollup/plugin-typescript && npm i rollup-plugin-terser
           },
           "bundle": {
+            "plugins": ["rollup-plugin-sourcemaps"], // npm i rollup-plugin-sourcemaps
             "output": {
-              "format": "iife"
+              "format": "iife",
+              "sourcemap": true
             }
           },
           "bundle-es6": {
-            "plugins": ["rollup-plugin-sourcemaps"], // npm i rollup-plugin-sourcemaps
+            "plugins": ["rollup-plugin-sourcemaps"],
             "output": {
               "format": "es",
-              "sourcemap": "inline" // Only inline source maps are supported
+              "sourcemap": "inline" // Inline source maps are more reliable
             }
           }
         }
@@ -166,6 +173,7 @@ Text based documents which require a preprocessor before being rendered can have
   }
 }
 ```
+
 * Source map support (js/css): npm i source-map-resolve
 
 NPM plugins have to be installed manually and the transfomer routine is usually custom written. There are a few built-in example transformers as part of [squared-functions](https://github.com/anpham6/squared-functions#readme).
@@ -198,6 +206,7 @@ Evaluated functions in configuration files or HTML templates are synchronous. Ro
 </body>
 </html>
 ```
+
 You can debug TypeScript files directly in Visual Code with the Chrome extension using the "tsc" --outDir &lt;workspace&gt; and --inlineSourceMap flags. It is more efficient to debug the "js" output files and to also use the --watch flag for recompilation.
 
 NOTE: To use "format" as an external property then it has to be prefixed as "~format".

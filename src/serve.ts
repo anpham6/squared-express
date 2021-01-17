@@ -10,6 +10,7 @@ import express = require('express');
 import cors = require('cors');
 import body_parser = require('body-parser');
 import request = require('request');
+import mime = require('mime-types');
 import uuid = require('uuid');
 import archiver = require('archiver');
 import _7z = require('node-7z');
@@ -18,6 +19,9 @@ import chalk = require('chalk');
 
 import FileManager = require('@squared-functions/file-manager');
 import Document = require('@squared-functions/document');
+
+type SourceMap = Internal.Document.SourceMap;
+type TransformOutput = Internal.Document.TransformOutput;
 
 interface ServeSettings extends Settings {
     env?: string;
@@ -56,9 +60,6 @@ interface Route extends Partial<RouteHandler> {
     document?: string;
 }
 
-type SourceMap = Internal.Document.SourceMap;
-type TransformOutput = Internal.Document.TransformOutput;
-
 type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
 
 const JSON_CACHE: ObjectMap<PlainObject> = {};
@@ -80,13 +81,14 @@ let documentModule: Undef<ObjectMap<ExtendedSettings.DocumentModule>>,
     watchInterval: Undef<number>;
 
 function installModules(this: IFileManager, query: StringMap, body: RequestBody) {
-    if (documentModule && body.document) {
-        for (const value of body.document) {
-            const module = documentModule[value];
+    const { document, task } = body;
+    if (documentModule && document) {
+        for (const name of document) {
+            const module = documentModule[name];
             if (module && module.handler) {
                 try {
                     const instance = require(module.handler);
-                    switch (value) {
+                    switch (name) {
                         case 'chrome':
                             this.install('document', instance, module, query.release === '1');
                             break;
@@ -96,26 +98,26 @@ function installModules(this: IFileManager, query: StringMap, body: RequestBody)
                     }
                 }
                 catch (err) {
-                    Module.writeFail(['Unable to load Document handler', value], err);
+                    Module.writeFail(['Unable to load Document handler', name], err);
                 }
             }
         }
     }
-    if (taskModule && body.task) {
-        for (const value of body.task) {
-            const module = taskModule[value];
+    if (taskModule && task) {
+        for (const name of task) {
+            const module = taskModule[name];
             if (module && module.handler && module.settings) {
                 try {
                     const instance = require(module.handler);
                     this.install('task', instance, module);
                 }
                 catch (err) {
-                    Module.writeFail(['Unable to load Task handler', value], err);
+                    Module.writeFail(['Unable to load Task handler', name], err);
                 }
             }
         }
     }
-    if (Image) {
+    if (Image.size) {
         this.install('image', Image);
     }
     if (compressModule) {
@@ -285,17 +287,17 @@ function parseErrors(errors: string[]) {
     }
 
     if (settings.image) {
-        let mime = '';
+        let ext = '';
         try {
-            for (mime in settings.image) {
-                const name = settings.image[mime];
+            for (ext in settings.image) {
+                const name = settings.image[ext];
                 if (name) {
-                    Image.set((mime !== 'handler' ? 'image/' : '') + mime, require(name));
+                    Image.set((ext !== 'handler' ? 'image/' : '') + ext, require(name));
                 }
             }
         }
         catch (err) {
-            Module.writeFail(['Unable to load Image handler', mime], err);
+            Module.writeFail(['Unable to load Image handler', ext], err);
         }
     }
     if (!Image.has('handler')) {
@@ -364,14 +366,11 @@ function parseErrors(errors: string[]) {
                                                 const params = new URLSearchParams(url.search);
                                                 const type = params.get('type');
                                                 const format = params.get('format');
-                                                const mime = params.get('mime');
-                                                if (mime) {
-                                                    res.setHeader('Content-Type', mime);
-                                                }
+                                                const sourceFile = path.join(baseDir, url.pathname.substring(target.length));
+                                                const contentType = params.get('mime') || mime.lookup(url.pathname);
                                                 let content = '';
-                                                if (type && format && plugins[type]) {
-                                                    const sourceFile = path.join(baseDir, url.pathname.substring(target.length));
-                                                    if (fs.existsSync(sourceFile)) {
+                                                if (fs.existsSync(sourceFile)) {
+                                                    if (type && format && plugins[type]) {
                                                         const external: PlainObject = {};
                                                         params.forEach((value, key) => {
                                                             switch (key) {
@@ -437,8 +436,10 @@ function parseErrors(errors: string[]) {
                                                                     for (let i = 0; i < sources.length; ++i) {
                                                                         sources[i] = path.resolve(options.sourcesRelativeTo, sources[i]);
                                                                     }
-                                                                    options.sourceMap = Document.createSourceMap(code);
-                                                                    options.sourceMap.nextMap('unknown', map, code);
+                                                                    const sourceMap = Document.createSourceMap(code);
+                                                                    sourceMap.streamingContent = true;
+                                                                    sourceMap.nextMap('unknown', code, map);
+                                                                    options.sourceMap = sourceMap;
                                                                 }
                                                             }
                                                             catch (err) {
@@ -449,9 +450,16 @@ function parseErrors(errors: string[]) {
                                                         }
                                                         const result = await instance.transform(type, code, format, options);
                                                         if (result) {
-                                                            content = result.code;
+                                                            const sourceMap = options.sourceMap;
+                                                            content = sourceMap && sourceMap.output.size && sourceMap.code === result.code ? Document.writeSourceMap(sourceFile, sourceMap) : result.code;
                                                         }
                                                     }
+                                                    else {
+                                                        content = fs.readFileSync(sourceFile, 'utf8');
+                                                    }
+                                                }
+                                                if (contentType) {
+                                                    res.setHeader('Content-Type', contentType);
                                                 }
                                                 res.send(content);
                                             });
@@ -496,7 +504,7 @@ function parseErrors(errors: string[]) {
                             }
                             let callback: FunctionType<string>[] | FunctionType<string> = [];
                             for (const content of handler) {
-                                const method = Module.parseFunction(content);
+                                const method = FileManager.parseFunction(content, 'express');
                                 if (method) {
                                     callback.push(method);
                                 }
@@ -555,17 +563,23 @@ function parseErrors(errors: string[]) {
     Module.formatMessage(Module.logType.SYSTEM, 'DISK', (permission.hasDiskRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (permission.hasDiskWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
     Module.formatMessage(Module.logType.SYSTEM, 'UNC', (permission.hasUNCRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (permission.hasUNCWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
 
-    if (argv.cors) {
-        app.use(cors({ origin: argv.cors }));
-        app.options('*', cors());
+    let origin: Undef<string> = argv.cors,
+        corsOptions: Undef<CorsOptions>;
+    if (origin) {
+        corsOptions = { origin };
     }
-    else if (settings.cors && settings.cors.origin) {
-        app.use(cors(settings.cors));
+    else if (corsOptions = settings.cors) {
+        origin = corsOptions.origin as string;
+    }
+    if (corsOptions) {
+        app.use(cors(corsOptions));
         app.options('*', cors());
-        argv.cors = typeof settings.cors.origin === 'string' ? settings.cors.origin : 'true';
+        if (typeof origin !== 'string') {
+            origin = 'true';
+        }
     }
 
-    Module.formatMessage(Module.logType.SYSTEM, 'CORS', argv.cors ? chalk.green(argv.cors) : chalk.grey('disabled'), '', { titleColor: 'blue' });
+    Module.formatMessage(Module.logType.SYSTEM, 'CORS', origin ? chalk.green(origin) : chalk.grey('disabled'), '', { titleColor: 'blue' });
 
     if (argv.port) {
         PORT = argv.port.toString();
