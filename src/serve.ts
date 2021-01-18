@@ -1,7 +1,7 @@
 import type { ResponseData } from '@squared-functions/types/lib/squared';
 
 import type { DocumentConstructor, IFileManager, IPermission, ImageConstructor } from '@squared-functions/types';
-import type { SourceMap, TransformOutput } from '@squared-functions/types/lib/document';
+import type { SourceMap, SourceMapOutput, TransformOutput } from '@squared-functions/types/lib/document';
 import type { CloudModule, CompressModule, DocumentModule, TaskModule } from '@squared-functions/types/lib/module';
 import type { RequestBody, Settings } from '@squared-functions/types/lib/node';
 
@@ -461,7 +461,6 @@ function parseErrors(errors: string[]) {
                                                                             sources[i] = path.resolve(options.sourcesRelativeTo, sources[i]);
                                                                         }
                                                                         const sourceMap = Document.createSourceMap(code);
-                                                                        sourceMap.streamingContent = true;
                                                                         sourceMap.nextMap('unknown', code, map);
                                                                         options.sourceMap = sourceMap;
                                                                     }
@@ -474,8 +473,15 @@ function parseErrors(errors: string[]) {
                                                             }
                                                             const result = await instance.transform(type, code, format, options);
                                                             if (result) {
-                                                                const sourceMap = options.sourceMap;
-                                                                content = sourceMap && sourceMap.output.size && sourceMap.code === result.code ? Document.writeSourceMap(sourceFile, sourceMap) : result.code;
+                                                                if (result.map) {
+                                                                    let sourceMappingURL = path.basename(sourceFile);
+                                                                    if (!sourceMappingURL.endsWith(type)) {
+                                                                        sourceMappingURL += '.' + type;
+                                                                    }
+                                                                    sourceMappingURL += '.' + format + '.map';
+                                                                    Document.writeSourceMap(sourceFile, result as SourceMapOutput, { sourceMappingURL });
+                                                                }
+                                                                content = result.code;
                                                             }
                                                         }
                                                         else {

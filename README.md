@@ -157,7 +157,7 @@ Text based documents which require a preprocessor before being rendered can have
       },
       "css": {
         "sass": { // NPM package name
-          "demo": "function (context, value, output) { return context.renderSync({ ...output.config, data: value }, functions: {}); }" // synchronous
+          "demo": "function (context, value, options, resolve) { resolve(context.renderSync({ ...options.outputConfig, data: value }, functions: {}).css); }" // Uses Promise callback "resolve"
           "demo-output": { // function param: "options" (optional)
             "indentedSyntax": true,
             "outputStyle": "compressed"
@@ -207,7 +207,7 @@ Evaluated functions in configuration files or HTML templates are synchronous. Ro
 </html>
 ```
 
-You can debug TypeScript files directly in Visual Code with the Chrome extension using the "tsc" --outDir &lt;workspace&gt; and --inlineSourceMap flags. It is more efficient to debug the "js" output files and to also use the --watch flag for recompilation.
+You can debug TypeScript files directly in Visual Code with the Chrome extension using the "tsc" --outDir &lt;workspace&gt;. It is more efficient to debug the "js" output files and to also use the --watch flag for recompilation.
 
 NOTE: To use "format" as an external property then it has to be prefixed as "~format".
 
