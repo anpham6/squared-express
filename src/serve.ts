@@ -1,5 +1,10 @@
-import type { DocumentConstructor, ExtendedSettings, IFileManager, IPermission, ImageConstructor, Internal, RequestBody, Settings } from '@squared-functions/types';
 import type { ResponseData } from '@squared-functions/types/lib/squared';
+
+import type { DocumentConstructor, IFileManager, IPermission, ImageConstructor } from '@squared-functions/types';
+import type { SourceMap, TransformOutput } from '@squared-functions/types/lib/document';
+import type { CloudModule, CompressModule, DocumentModule, TaskModule } from '@squared-functions/types/lib/module';
+import type { RequestBody, Settings } from '@squared-functions/types/lib/node';
+
 import type { IRoute } from 'express';
 import type { CorsOptions } from 'cors';
 
@@ -20,9 +25,6 @@ import chalk = require('chalk');
 import FileManager = require('@squared-functions/file-manager');
 import Document = require('@squared-functions/document');
 
-type SourceMap = Internal.Document.SourceMap;
-type TransformOutput = Internal.Document.TransformOutput;
-
 interface ServeSettings extends Settings {
     env?: string;
     port?: StringMap;
@@ -36,7 +38,7 @@ interface RoutingModule {
     [key: string]: Route[];
 }
 
-interface CompressModule extends ExtendedSettings.CompressModule {
+interface ICompressModule extends CompressModule {
     "7za_bin"?: string;
 }
 
@@ -72,11 +74,11 @@ app.use(body_parser.urlencoded({ extended: true }));
 const Module = FileManager.moduleCompress();
 const Image = new Map<string, ImageConstructor>();
 
-let documentModule: Undef<ObjectMap<ExtendedSettings.DocumentModule>>,
-    taskModule: Undef<ObjectMap<ExtendedSettings.TaskModule>>,
-    cloudModule: Undef<ExtendedSettings.CloudModule>,
-    compressModule: Undef<CompressModule>,
-    settings: ServeSettings = {},
+let settings: ServeSettings = {},
+    documentModule: Undef<ObjectMap<DocumentModule>>,
+    taskModule: Undef<ObjectMap<TaskModule>>,
+    cloudModule: Undef<CloudModule>,
+    compressModule: Undef<ICompressModule>,
     permission: Undef<IPermission>,
     path7za: Undef<string>,
     watchInterval: Undef<number>;
