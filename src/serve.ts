@@ -24,6 +24,7 @@ import chalk = require('chalk');
 
 import FileManager = require('@squared-functions/file-manager');
 import Document = require('@squared-functions/document');
+import Image = require('@squared-functions/image');
 
 interface ServeSettings extends Settings {
     env?: string;
@@ -61,6 +62,7 @@ interface Route extends Partial<RouteHandler> {
     path?: string;
     handler?: string | string[];
     document?: string;
+    image?: string;
 }
 
 type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
@@ -72,7 +74,7 @@ const app = express();
 app.use(body_parser.urlencoded({ extended: true }));
 
 const Module = FileManager.moduleCompress();
-const Image = new Map<string, ImageConstructor>();
+const imageMap = new Map<string, ImageConstructor>();
 
 let settings: ServeSettings = {},
     documentModule: Undef<ObjectMap<DocumentModule>>,
@@ -120,8 +122,8 @@ function installModules(this: IFileManager, query: StringMap, body: RequestBody)
             }
         }
     }
-    if (Image.size) {
-        this.install('image', Image);
+    if (imageMap.size) {
+        this.install('image', imageMap);
     }
     if (compressModule) {
         this.install('compress');
@@ -301,7 +303,7 @@ function parseErrors(errors: string[]) {
             for (ext in settings.image) {
                 const name = settings.image[ext];
                 if (name) {
-                    Image.set((ext !== 'handler' ? 'image/' : '') + ext, require(name));
+                    imageMap.set((ext !== 'handler' ? 'image/' : '') + ext, require(name));
                 }
             }
         }
@@ -309,8 +311,8 @@ function parseErrors(errors: string[]) {
             Module.writeFail(['Unable to load Image handler', ext], err);
         }
     }
-    if (!Image.has('handler')) {
-        Image.set('handler', require('@squared-functions/image/jimp'));
+    if (!imageMap.has('handler')) {
+        imageMap.set('handler', require('@squared-functions/image/jimp'));
     }
 
     if (settings.routing) {
@@ -353,7 +355,7 @@ function parseErrors(errors: string[]) {
             'unsubscribe'
         ];
         const mounted: ObjectMap<Set<string>> = {};
-        const routing: [string, Route[]][] = [['common', settings.routing.common], [ENV, settings.routing[ENV]]].filter(mount => Array.isArray(mount[1])) as [string, Route[]][];
+        const routing: [string, Route[]][] = [];
         const addMount = (method: keyof RouteHandler | "static", value: string) => (mounted[method] ||= new Set()).add(value);
         const wasMounted = (method: keyof RouteHandler | "static", value: string) => mounted[method] && mounted[method].has(value);
         if (argv.routing) {
@@ -364,6 +366,7 @@ function parseErrors(errors: string[]) {
                 }
             }
         }
+        routing.push(...[[ENV, settings.routing[ENV]], ['common', settings.routing.common]].filter(mount => Array.isArray(mount[1])) as [string, Route[]][]);
         if (routing.length) {
             console.log();
             for (const [namespace, item] of routing) {
@@ -371,149 +374,197 @@ function parseErrors(errors: string[]) {
                     routes = 0,
                     workspaces = 0;
                 for (const route of item) {
-                    const { mount, path: dirname, document } = route;
+                    const { mount, path: dirname, document, image } = route;
                     if (mount && dirname) {
-                        let data: Undef<StandardMap>;
-                        if (document && (data = settings.document?.[document])) {
-                            const { handler, settings: plugins } = data;
-                            if (handler && plugins) {
+                        let documentData: Undef<StandardMap>,
+                            handler: Undef<string>;
+                        if (document && (documentData = settings.document?.[document]) && (handler = documentData.handler) || (handler = image)) {
+                            if (handler) {
                                 const target = FileManager.toPosix((dirname[0] !== '/' ? '/' : '') + dirname);
                                 const pathname = target + '/*';
                                 if (!wasMounted('get', pathname)) {
                                     try {
                                         const baseDir = path.resolve(mount);
                                         if (fs.lstatSync(baseDir).isDirectory()) {
-                                            try {
-                                                const instance = new (require(handler) as DocumentConstructor)(data);
-                                                app.get(pathname, async (req, res) => {
-                                                    const url = new URL(req.protocol + '://' + req.hostname + req.originalUrl);
-                                                    const params = new URLSearchParams(url.search);
-                                                    const type = params.get('type');
-                                                    const format = params.get('format');
-                                                    const sourceFile = path.join(baseDir, url.pathname.substring(target.length));
-                                                    const contentType = params.get('mime') || mime.lookup(url.pathname);
-                                                    let content = '';
-                                                    if (fs.existsSync(sourceFile)) {
-                                                        if (type && format && plugins[type]) {
-                                                            const external: PlainObject = {};
-                                                            params.forEach((value, key) => {
-                                                                switch (key) {
-                                                                    case 'type':
-                                                                    case 'format':
-                                                                    case 'mime':
-                                                                        return;
-                                                                    case '~type':
-                                                                    case '~format':
-                                                                    case '~mime':
-                                                                        key = key.substring(1);
-                                                                        break;
-                                                                }
-                                                                const attrs = key.split('.');
-                                                                let current = external;
-                                                                do {
-                                                                    const name = attrs.shift()!;
-                                                                    if (attrs.length === 0) {
-                                                                        switch (value) {
-                                                                            case 'true':
-                                                                                current[name] = true;
-                                                                                break;
-                                                                            case 'false':
-                                                                                current[name] = false;
-                                                                                break;
-                                                                            case 'undefined':
-                                                                                current[name] = undefined;
-                                                                                break;
-                                                                            case 'null':
-                                                                                current[name] = null;
-                                                                                break;
-                                                                            case '{}':
-                                                                                current[name] = {};
-                                                                                break;
-                                                                            case '[]':
-                                                                                current[name] = [];
-                                                                                break;
-                                                                            default:
-                                                                                current[name] = !isNaN(+value) ? +value : value;
-                                                                                break;
-                                                                        }
-                                                                        break;
-                                                                    }
-                                                                    else {
-                                                                        if (!current[name] || typeof current[name] !== 'object') {
-                                                                            current[name] = {};
-                                                                        }
-                                                                        current = current[name] as PlainObject;
-                                                                    }
-                                                                }
-                                                                while (true);
-                                                            });
-                                                            const options: TransformOutput = { sourceFile, external };
-                                                            const code = fs.readFileSync(sourceFile, 'utf8');
-                                                            try {
-                                                                const sourceMapResolve = require('source-map-resolve');
-                                                                try {
-                                                                    const output = sourceMapResolve.resolveSourceMapSync(code, url.pathname, fs.readFileSync) as PlainObject; // eslint-disable-line @typescript-eslint/no-unsafe-call
-                                                                    if (output) {
-                                                                        const map = output.map as SourceMap;
-                                                                        const sources = map.sources;
-                                                                        options.sourcesRelativeTo = path.dirname(sourceFile);
-                                                                        for (let i = 0; i < sources.length; ++i) {
-                                                                            sources[i] = path.resolve(options.sourcesRelativeTo, sources[i]);
-                                                                        }
-                                                                        const sourceMap = Document.createSourceMap(code);
-                                                                        sourceMap.nextMap('unknown', code, map);
-                                                                        options.sourceMap = sourceMap;
-                                                                    }
-                                                                }
-                                                                catch (err) {
-                                                                    Module.writeFail(['Unable to parse source map', document], err);
-                                                                }
-                                                            }
-                                                            catch {
-                                                            }
-                                                            const result = await instance.transform(type, code, format, options);
-                                                            if (result) {
-                                                                if (result.map) {
-                                                                    let sourceMappingURL = path.basename(sourceFile);
-                                                                    if (!sourceMappingURL.endsWith(type)) {
-                                                                        sourceMappingURL += '.' + type;
-                                                                    }
-                                                                    sourceMappingURL += '.' + format + '.map';
-                                                                    Document.writeSourceMap(sourceFile, result as SourceMapOutput, { sourceMappingURL });
-                                                                }
-                                                                content = result.code;
-                                                            }
-                                                        }
-                                                        else {
-                                                            content = fs.readFileSync(sourceFile, 'utf8');
-                                                        }
-                                                    }
-                                                    if (contentType) {
-                                                        res.setHeader('Content-Type', contentType);
-                                                    }
-                                                    res.send(content);
-                                                });
+                                            const getSourceFile = (value: string) => path.join(baseDir, value.substring(target.length));
+                                            const workspaceMounted = () => {
                                                 Module.formatMessage(Module.logType.SYSTEM, 'BUILD', `${chalk.bgGrey(baseDir)} ${chalk.yellow('->')} ${chalk.bold(target)}`, '', { titleColor: 'yellow' });
                                                 addMount('get', pathname);
                                                 ++workspaces;
+                                            };
+                                            if (documentData) {
+                                                if (documentData.settings) {
+                                                    try {
+                                                        const instance = new (require(handler) as DocumentConstructor)(documentData);
+                                                        app.get(pathname, async (req, res, next) => {
+                                                            const url = new URL(req.protocol + '://' + req.hostname + req.originalUrl);
+                                                            const params = new URLSearchParams(url.search);
+                                                            const type = params.get('type');
+                                                            const format = params.get('format');
+                                                            const sourceFile = getSourceFile(url.pathname);
+                                                            const contentType = params.get('mime') || mime.lookup(url.pathname);
+                                                            if (fs.existsSync(sourceFile)) {
+                                                                if (type && format && documentData!.settings[type]) {
+                                                                    const external: PlainObject = {};
+                                                                    params.forEach((value, key) => {
+                                                                        switch (key) {
+                                                                            case 'type':
+                                                                            case 'format':
+                                                                            case 'mime':
+                                                                                return;
+                                                                            case '~type':
+                                                                            case '~format':
+                                                                            case '~mime':
+                                                                                key = key.substring(1);
+                                                                                break;
+                                                                        }
+                                                                        const attrs = key.split('.');
+                                                                        let current = external;
+                                                                        do {
+                                                                            const name = attrs.shift()!;
+                                                                            if (attrs.length === 0) {
+                                                                                switch (value) {
+                                                                                    case 'true':
+                                                                                        current[name] = true;
+                                                                                        break;
+                                                                                    case 'false':
+                                                                                        current[name] = false;
+                                                                                        break;
+                                                                                    case 'undefined':
+                                                                                        current[name] = undefined;
+                                                                                        break;
+                                                                                    case 'null':
+                                                                                        current[name] = null;
+                                                                                        break;
+                                                                                    case '{}':
+                                                                                        current[name] = {};
+                                                                                        break;
+                                                                                    case '[]':
+                                                                                        current[name] = [];
+                                                                                        break;
+                                                                                    default:
+                                                                                        current[name] = !isNaN(+value) ? +value : value;
+                                                                                        break;
+                                                                                }
+                                                                                break;
+                                                                            }
+                                                                            else {
+                                                                                if (!current[name] || typeof current[name] !== 'object') {
+                                                                                    current[name] = {};
+                                                                                }
+                                                                                current = current[name] as PlainObject;
+                                                                            }
+                                                                        }
+                                                                        while (true);
+                                                                    });
+                                                                    const options: TransformOutput = { sourceFile, external };
+                                                                    const code = fs.readFileSync(sourceFile, 'utf8');
+                                                                    try {
+                                                                        const sourceMapResolve = require('source-map-resolve');
+                                                                        try {
+                                                                            const output = sourceMapResolve.resolveSourceMapSync(code, url.pathname, fs.readFileSync) as PlainObject; // eslint-disable-line @typescript-eslint/no-unsafe-call
+                                                                            if (output) {
+                                                                                const map = output.map as SourceMap;
+                                                                                const sources = map.sources;
+                                                                                options.sourcesRelativeTo = path.dirname(sourceFile);
+                                                                                for (let i = 0; i < sources.length; ++i) {
+                                                                                    sources[i] = path.resolve(options.sourcesRelativeTo, sources[i]);
+                                                                                }
+                                                                                const sourceMap = Document.createSourceMap(code);
+                                                                                sourceMap.nextMap('unknown', code, map);
+                                                                                options.sourceMap = sourceMap;
+                                                                            }
+                                                                        }
+                                                                        catch (err) {
+                                                                            Module.writeFail(['Unable to parse source map', document!], err);
+                                                                        }
+                                                                    }
+                                                                    catch {
+                                                                    }
+                                                                    const result = await instance.transform(type, code, format, options);
+                                                                    if (result) {
+                                                                        if (result.map) {
+                                                                            let sourceMappingURL = path.basename(sourceFile);
+                                                                            if (!sourceMappingURL.endsWith(type)) {
+                                                                                sourceMappingURL += '.' + type;
+                                                                            }
+                                                                            sourceMappingURL += '.' + format + '.map';
+                                                                            Document.writeSourceMap(sourceFile, result as SourceMapOutput, { sourceMappingURL });
+                                                                        }
+                                                                        if (contentType) {
+                                                                            res.setHeader('Content-Type', contentType);
+                                                                        }
+                                                                        res.send(result.code);
+                                                                    }
+                                                                    else {
+                                                                        res.send(null);
+                                                                    }
+                                                                    return;
+                                                                }
+                                                            }
+                                                            next();
+                                                        });
+                                                        workspaceMounted();
+                                                    }
+                                                    catch (err) {
+                                                        Module.writeFail(['Unable to load Document handler', document!], err);
+                                                    }
+                                                }
+                                                else {
+                                                    Module.writeFail(['Document settings not found', document!]);
+                                                }
                                             }
-                                            catch (err) {
-                                                Module.writeFail(['Unable to load Document handler', document], err);
+                                            else {
+                                                try {
+                                                    const instance = require(handler) as ImageConstructor;
+                                                    if (instance.prototype instanceof Image) {
+                                                        app.get(pathname, async (req, res, next) => {
+                                                            const url = new URL(req.protocol + '://' + req.hostname + req.originalUrl);
+                                                            const params = new URLSearchParams(url.search);
+                                                            const sourceFile = getSourceFile(url.pathname);
+                                                            if (fs.existsSync(sourceFile)) {
+                                                                const command = params.get('command');
+                                                                if (command) {
+                                                                    const contentType = mime.lookup(url.pathname);
+                                                                    const time = Date.now();
+                                                                    const result = await instance.transform(sourceFile, command, contentType || '');
+                                                                    if (result) {
+                                                                        Module.writeTimeElapsed('IMAGE', command, time);
+                                                                        res.setHeader('Content-Type', params.get('mime') || contentType || 'image/jpeg');
+                                                                        if (result instanceof Buffer) {
+                                                                            res.send(result);
+                                                                        }
+                                                                        else {
+                                                                            res.sendFile(result);
+                                                                        }
+                                                                    }
+                                                                    else {
+                                                                        res.send(null);
+                                                                    }
+                                                                    return;
+                                                                }
+                                                            }
+                                                            next();
+                                                        });
+                                                        workspaceMounted();
+                                                    }
+                                                    else {
+                                                        Module.writeFail('Unsupported Image handler', new Error(handler));
+                                                    }
+                                                }
+                                                catch (err) {
+                                                    Module.writeFail(['Unable to load Image handler', image!], err);
+                                                }
                                             }
                                         }
                                     }
                                     catch (err) {
-                                        Module.writeFail(['Unable to mount directory', document], err);
+                                        Module.writeFail(['Unable to mount directory', document || image!], err);
                                     }
                                 }
                             }
-                            else {
-                                if (!handler) {
-                                    Module.writeFail(['Document handler not found', document]);
-                                }
-                                if (!plugins) {
-                                    Module.writeFail(['Document settings not found', document]);
-                                }
+                            else if (documentData) {
+                                Module.writeFail(['Document handler not found', document!]);
                             }
                         }
                         else if (!wasMounted('static', dirname)) {

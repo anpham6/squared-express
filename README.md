@@ -115,7 +115,7 @@ function () {
 
 ### Workspaces
 
-Text based documents which require a preprocessor before being rendered can have the working live document precompiled before it is parsed by squared. It is not recommended for use in production deployments.
+Text based documents which require a preprocessor before being rendered can have the working live document precompiled before it is parsed by squared. Images with transformations can similarly be served into the browser for immediate viewing during the drafting phase. It is not recommended for use in production deployments.
 
 ```javascript
 // squared.settings.[json|yml]
@@ -124,7 +124,8 @@ Text based documents which require a preprocessor before being rendered can have
   "routing": {
     "development": [
       { "mount": "../local/src", "path": "/workspace-1", "document": "chrome" }, // Without "document" it is treated as an ordinary static mount
-      { "mount": "../local/html", "path": "/workspace-2", "document": "chrome" }
+      { "mount": "../local/html", "path": "/workspace-2", "document": "chrome" },
+      { "mount": "../local/html/common/images", "path": "/common/images", "image": "@squared-functions/image/jimp" } // NPM hosted packages only with ImageConstructor interface
     ]
   },
   "chrome": {
@@ -178,7 +179,7 @@ Text based documents which require a preprocessor before being rendered can have
 
 NPM plugins have to be installed manually and the transfomer routine is usually custom written. There are a few built-in example transformers as part of [squared-functions](https://github.com/anpham6/squared-functions#readme).
 
-Evaluated functions in configuration files or HTML templates are synchronous. Routines that are asynchronous require NPM hosted packages and are treated similarly to a built-in transformer.
+Evaluated functions in configuration files or HTML templates use Promise resolve callbacks. Asynchronous functions require NPM hosted packages and are treated similarly to a built-in transformer.
 
 ```html
 <html>
@@ -203,11 +204,14 @@ Evaluated functions in configuration files or HTML templates are synchronous. Ro
     </script>
 </head>
 <body>
+    <img src="/common/images/android.png?command=webp(480x800)%7B90%7D" /> <!-- URL encoded: webp(480x800){90} -->
 </body>
 </html>
 ```
 
 You can debug TypeScript files directly in Visual Code with the Chrome extension using the "tsc" --outDir &lt;workspace&gt;. It is more efficient to debug the "js" output files and to also use the --watch flag for recompilation.
+
+Workspace images only support one rotation. The "mime" parameter can also be used in case the server is incorrectly detecting the image content type.
 
 NOTE: To use "format" as an external property then it has to be prefixed as "~format".
 
