@@ -525,9 +525,13 @@ function parseErrors(errors: string[]) {
                                                             if (fs.existsSync(sourceFile)) {
                                                                 const command = params.get('command');
                                                                 if (command) {
-                                                                    const contentType = mime.lookup(url.pathname);
+                                                                    let contentType = mime.lookup(url.pathname);
+                                                                    if (!contentType) {
+                                                                        const fileType = await FileManager.resolveMime(sourceFile);
+                                                                        contentType = fileType ? fileType.mime : '';
+                                                                    }
                                                                     const time = Date.now();
-                                                                    const result = await instance.transform(sourceFile, command, contentType || '');
+                                                                    const result = await instance.transform(sourceFile, command, contentType);
                                                                     if (result) {
                                                                         Module.writeTimeElapsed('IMAGE', command, time);
                                                                         res.setHeader('Content-Type', params.get('mime') || contentType || 'image/jpeg');

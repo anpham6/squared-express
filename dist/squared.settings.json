@@ -130,7 +130,6 @@
   },
   "image": {
     "handler": "@squared-functions/image/jimp",
-    "unknown": "",
     "webp": ""
   },
   "watch": {
