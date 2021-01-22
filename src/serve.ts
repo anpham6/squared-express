@@ -402,107 +402,106 @@ function parseErrors(errors: string[]) {
                                                             const type = params.get('type');
                                                             const format = params.get('format');
                                                             const sourceFile = getSourceFile(url.pathname);
-                                                            const contentType = params.get('mime') || mime.lookup(url.pathname);
-                                                            if (fs.existsSync(sourceFile)) {
-                                                                if (type && format && documentData!.settings[type]) {
-                                                                    const external: PlainObject = {};
-                                                                    params.forEach((value, key) => {
-                                                                        switch (key) {
-                                                                            case 'type':
-                                                                            case 'format':
-                                                                            case 'mime':
-                                                                                return;
-                                                                            case '~type':
-                                                                            case '~format':
-                                                                            case '~mime':
-                                                                                key = key.substring(1);
-                                                                                break;
-                                                                        }
-                                                                        const attrs = key.split('.');
-                                                                        let current = external;
-                                                                        do {
-                                                                            const name = attrs.shift()!;
-                                                                            if (attrs.length === 0) {
-                                                                                switch (value) {
-                                                                                    case 'true':
-                                                                                        current[name] = true;
-                                                                                        break;
-                                                                                    case 'false':
-                                                                                        current[name] = false;
-                                                                                        break;
-                                                                                    case 'undefined':
-                                                                                        current[name] = undefined;
-                                                                                        break;
-                                                                                    case 'null':
-                                                                                        current[name] = null;
-                                                                                        break;
-                                                                                    case '{}':
-                                                                                        current[name] = {};
-                                                                                        break;
-                                                                                    case '[]':
-                                                                                        current[name] = [];
-                                                                                        break;
-                                                                                    default:
-                                                                                        current[name] = !isNaN(+value) ? +value : value;
-                                                                                        break;
-                                                                                }
-                                                                                break;
-                                                                            }
-                                                                            else {
-                                                                                if (!current[name] || typeof current[name] !== 'object') {
+                                                            if (type && format && documentData!.settings[type] && fs.existsSync(sourceFile)) {
+                                                                const external: PlainObject = {};
+                                                                params.forEach((value, key) => {
+                                                                    switch (key) {
+                                                                        case 'type':
+                                                                        case 'format':
+                                                                        case 'mime':
+                                                                            return;
+                                                                        case '~type':
+                                                                        case '~format':
+                                                                        case '~mime':
+                                                                            key = key.substring(1);
+                                                                            break;
+                                                                    }
+                                                                    const attrs = key.split('.');
+                                                                    let current = external;
+                                                                    do {
+                                                                        const name = attrs.shift()!;
+                                                                        if (attrs.length === 0) {
+                                                                            switch (value) {
+                                                                                case 'true':
+                                                                                    current[name] = true;
+                                                                                    break;
+                                                                                case 'false':
+                                                                                    current[name] = false;
+                                                                                    break;
+                                                                                case 'undefined':
+                                                                                    current[name] = undefined;
+                                                                                    break;
+                                                                                case 'null':
+                                                                                    current[name] = null;
+                                                                                    break;
+                                                                                case '{}':
                                                                                     current[name] = {};
-                                                                                }
-                                                                                current = current[name] as PlainObject;
+                                                                                    break;
+                                                                                case '[]':
+                                                                                    current[name] = [];
+                                                                                    break;
+                                                                                default:
+                                                                                    current[name] = !isNaN(+value) ? +value : value;
+                                                                                    break;
                                                                             }
+                                                                            break;
                                                                         }
-                                                                        while (true);
-                                                                    });
-                                                                    const options: TransformOutput = { sourceFile, external };
-                                                                    const code = fs.readFileSync(sourceFile, 'utf8');
+                                                                        else {
+                                                                            if (!current[name] || typeof current[name] !== 'object') {
+                                                                                current[name] = {};
+                                                                            }
+                                                                            current = current[name] as PlainObject;
+                                                                        }
+                                                                    }
+                                                                    while (true);
+                                                                });
+                                                                const options: TransformOutput = { sourceFile, external };
+                                                                const code = fs.readFileSync(sourceFile, 'utf8');
+                                                                try {
+                                                                    const sourceMapResolve = require('source-map-resolve');
                                                                     try {
-                                                                        const sourceMapResolve = require('source-map-resolve');
-                                                                        try {
-                                                                            const output = sourceMapResolve.resolveSourceMapSync(code, url.pathname, fs.readFileSync) as PlainObject; // eslint-disable-line @typescript-eslint/no-unsafe-call
-                                                                            if (output) {
-                                                                                const map = output.map as SourceMap;
-                                                                                const sources = map.sources;
-                                                                                options.sourcesRelativeTo = path.dirname(sourceFile);
-                                                                                for (let i = 0; i < sources.length; ++i) {
-                                                                                    sources[i] = path.resolve(options.sourcesRelativeTo, sources[i]);
-                                                                                }
-                                                                                const sourceMap = Document.createSourceMap(code);
-                                                                                sourceMap.nextMap('unknown', code, map);
-                                                                                options.sourceMap = sourceMap;
+                                                                        const output = sourceMapResolve.resolveSourceMapSync(code, url.pathname, fs.readFileSync) as PlainObject; // eslint-disable-line @typescript-eslint/no-unsafe-call
+                                                                        if (output) {
+                                                                            const map = output.map as SourceMap;
+                                                                            const sources = map.sources;
+                                                                            options.sourcesRelativeTo = path.dirname(sourceFile);
+                                                                            for (let i = 0; i < sources.length; ++i) {
+                                                                                sources[i] = path.resolve(options.sourcesRelativeTo, sources[i]);
                                                                             }
-                                                                        }
-                                                                        catch (err) {
-                                                                            Module.writeFail(['Unable to parse source map', document!], err);
+                                                                            const sourceMap = Document.createSourceMap(code);
+                                                                            sourceMap.nextMap('unknown', code, map);
+                                                                            options.sourceMap = sourceMap;
                                                                         }
                                                                     }
-                                                                    catch {
+                                                                    catch (err) {
+                                                                        Module.writeFail(['Unable to parse source map', document!], err);
                                                                     }
-                                                                    const result = await instance.transform(type, code, format, options);
-                                                                    if (result) {
-                                                                        if (result.map) {
-                                                                            let sourceMappingURL = path.basename(sourceFile);
-                                                                            if (!sourceMappingURL.endsWith(type)) {
-                                                                                sourceMappingURL += '.' + type;
-                                                                            }
-                                                                            sourceMappingURL += '.' + format + '.map';
-                                                                            Document.writeSourceMap(sourceFile, result as SourceMapOutput, { sourceMappingURL });
+                                                                }
+                                                                catch {
+                                                                }
+                                                                const result = await instance.transform(type, code, format, options);
+                                                                if (result) {
+                                                                    if (result.map) {
+                                                                        let sourceMappingURL = path.basename(sourceFile);
+                                                                        if (!sourceMappingURL.endsWith(type)) {
+                                                                            sourceMappingURL += '.' + type;
                                                                         }
-                                                                        if (contentType) {
-                                                                            res.setHeader('Content-Type', contentType);
-                                                                        }
-                                                                        res.send(result.code);
+                                                                        sourceMappingURL += '.' + format + '.map';
+                                                                        Document.writeSourceMap(sourceFile, result as SourceMapOutput, { sourceMappingURL });
                                                                     }
-                                                                    else {
-                                                                        res.send(null);
+                                                                    const contentType = params.get('mime') || mime.lookup(url.pathname);
+                                                                    if (contentType) {
+                                                                        res.setHeader('Content-Type', contentType);
                                                                     }
-                                                                    return;
+                                                                    res.send(result.code);
+                                                                }
+                                                                else {
+                                                                    res.send(null);
                                                                 }
                                                             }
-                                                            next();
+                                                            else {
+                                                                next();
+                                                            }
                                                         });
                                                         workspaceMounted();
                                                     }
@@ -521,39 +520,37 @@ function parseErrors(errors: string[]) {
                                                         app.get(pathname, async (req, res, next) => {
                                                             const url = new URL(req.protocol + '://' + req.hostname + req.originalUrl);
                                                             const params = new URLSearchParams(url.search);
+                                                            const command = params.get('command');
                                                             const sourceFile = getSourceFile(url.pathname);
-                                                            if (fs.existsSync(sourceFile)) {
-                                                                const command = params.get('command');
-                                                                if (command) {
-                                                                    let contentType = mime.lookup(url.pathname);
-                                                                    if (!contentType) {
-                                                                        const fileType = await FileManager.resolveMime(sourceFile);
-                                                                        contentType = fileType ? fileType.mime : '';
-                                                                    }
-                                                                    const time = Date.now();
-                                                                    const result = await instance.transform(sourceFile, command, contentType);
-                                                                    if (result) {
-                                                                        Module.writeTimeElapsed('IMAGE', command, time);
-                                                                        res.setHeader('Content-Type', params.get('mime') || contentType || 'image/jpeg');
-                                                                        if (result instanceof Buffer) {
-                                                                            res.send(result);
-                                                                        }
-                                                                        else {
-                                                                            res.sendFile(result);
-                                                                        }
+                                                            if (command && fs.existsSync(sourceFile)) {
+                                                                let contentType = mime.lookup(url.pathname) || await FileManager.resolveMime(sourceFile);
+                                                                if (contentType && typeof contentType !== 'string') {
+                                                                    contentType = contentType.mime;
+                                                                }
+                                                                const time = Date.now();
+                                                                const result = await instance.transform(sourceFile, command, contentType);
+                                                                if (result) {
+                                                                    Module.writeTimeElapsed('IMAGE', command, time);
+                                                                    res.setHeader('Content-Type', params.get('mime') || contentType || 'image/jpeg');
+                                                                    if (result instanceof Buffer) {
+                                                                        res.send(result);
                                                                     }
                                                                     else {
-                                                                        res.send(null);
+                                                                        res.sendFile(result);
                                                                     }
-                                                                    return;
+                                                                }
+                                                                else {
+                                                                    res.send(null);
                                                                 }
                                                             }
-                                                            next();
+                                                            else {
+                                                                next();
+                                                            }
                                                         });
                                                         workspaceMounted();
                                                     }
                                                     else {
-                                                        Module.writeFail('Unsupported Image handler', new Error(handler));
+                                                        Module.writeFail('Object does not extend ImageConstructor', new Error(handler));
                                                     }
                                                 }
                                                 catch (err) {
@@ -705,7 +702,7 @@ app.post('/api/v1/assets/copy', (req, res) => {
                         files,
                         error: parseErrors(errors)
                     } as ResponseData);
-                    manager.formatMessage(Module.logType.NODE, 'WRITE', [dirname, files.length + ' files']);
+                    manager.formatMessage(Module.logType.NODE, ' WRITE ', [dirname, files.length + ' files']);
                 },
                 settings
             );
@@ -793,10 +790,10 @@ app.post('/api/v1/assets/archive', (req, res) => {
                             response.success = false;
                         }
                         res.json(response);
-                        manager.formatMessage(Module.logType.NODE, 'WRITE', [response.filename!, bytes + ' bytes']);
+                        manager.formatMessage(Module.logType.NODE, ' WRITE ', [response.filename!, bytes + ' bytes']);
                     };
                     if (!use7z) {
-                        const archive = archiver(format as archiver.Format, { zlib: { level: Module.gzipLevel } });
+                        const archive = archiver(format as archiver.Format, { zlib: { level: Module.level.gz } });
                         archive.pipe(
                             fs.createWriteStream(zippath)
                                 .on('close', () => {

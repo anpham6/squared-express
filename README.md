@@ -209,9 +209,16 @@ Evaluated functions in configuration files or HTML templates use Promise resolve
 </html>
 ```
 
+If any of the required query parameters are excluded then the URL will be sent to the next Express static handler.
+
+```xml
+* Document: format + type
+* Image: command
+```
+
 You can debug TypeScript files directly in Visual Code with the Chrome extension using the "tsc" --outDir &lt;workspace&gt;. It is more efficient to debug the "js" output files and to also use the --watch flag for recompilation.
 
-Workspace images only support one rotation. The "mime" parameter can also be used in case the server is incorrectly detecting the image content type.
+Workspace images only support one rotation. The optional "mime" parameter can also be used in case the server is incorrectly detecting the image content type.
 
 NOTE: To use "format" as an external property then it has to be prefixed as "~format".
 
