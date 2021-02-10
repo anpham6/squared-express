@@ -13,24 +13,31 @@
 Typically you will be using squared with squared-express although it can also be used to copy or archive files with the API routes and JSON.
 
 ```javascript
+ // Attributes are all optional
+
 const data = {
-    filename: 'archive1', // optional
-    format: 'zip', // optional (zip | 7z | gz | tar)
-    assets: [ // optional
+    // archive
+    filename: 'archive1',
+    format: 'zip', // zip | 7z | gz | tar
+    copyTo: '/path/project', // zip from directory
+
+    // copy
+    emptyDir: false, // empty target directory
+    watch: false, // enable file watching
+
+    assets: [
         {
-            pathname: 'app/src/main/res/drawable',
-            filename: 'ic_launcher_background.xml',
-            uri: 'http://localhost:3000/common/images/ic_launcher_background.xml',
-            compress: [{ format: 'gz', level: 9 }, { format: 'br' }] // optional
+            pathname: 'app/src/main/res/drawable', // required
+            filename: 'ic_launcher_background.xml', // required
+            uri: 'http://localhost:3000/common/images/ic_launcher_background.xml', // required
+            compress: [{ format: 'gz', level: 9 }, { format: 'br', chunkSize: 4096 }]
         }
     ],
-
-    // All attributes are optional (case-sensitive except extension)
     exclusions: {
         glob: ['**/*.zip'],
         pathname: ['app/build', 'app/libs'],
         filename: ['ic_launcher_foreground.xml'],
-        extension: ['iml', 'pro'],
+        extension: ['iml', 'pro'], // not case-sensitive
         pattern: ['output', /grad.+?\./i, '\\.git']
     }
 };
@@ -231,7 +238,7 @@ Version 1.0.0
 
 POST: "/api/v1/assets/archive?format={zip|7z|gz|tar}&filename=[no_ext]&to=[disk_uri]&append_to=[archive_uri]"
 
-POST: "/api/v1/assets/copy?to={disk_uri}&empty=[0|1]" // target directory
+POST: "/api/v1/assets/copy?to={disk_uri}&empty=[0|1|2]" // target directory (1=sub|2=base)
 
 GET: "/api/v1/loader/data/json?key={id}&cache=[0|1]" // squared 2.3.0 <ResponseData>
 GET: "/api/v1/loader/data/blob?key={id}&cache=[0|1]" // squared 2.3.0 <Blob>

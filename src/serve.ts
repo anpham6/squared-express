@@ -691,6 +691,14 @@ app.post('/api/v1/assets/copy', (req, res) => {
     let error: Undef<true | ResponseData>;
     if (dirname && permission && (error = FileManager.hasPermission(dirname, permission)) === true) {
         try {
+            if (query.empty === '2') {
+                try {
+                    fs.emptyDirSync(dirname);
+                }
+                catch (err) {
+                    Module.writeFail(['Unable to empty base directory', dirname], err);
+                }
+            }
             const body = req.body as RequestBody;
             const manager = new FileManager(
                 dirname,
