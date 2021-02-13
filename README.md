@@ -63,12 +63,12 @@ Supported formats:
 
 ```javascript
 * zip
-* 7z // npm i 7zip-bin
+* 7z // npm i node-7z && npm i 7zip-bin
 * gz
 * tar
 ```
 
-You can use a locally installed 7z by providing the full location of the binary (7za or 7z.exe) in squared.settings.json.
+You can use a locally installed 7zip-bin by providing the full location of the binary (7za or 7z.exe) in squared.settings.json.
 
 ### Routing
 

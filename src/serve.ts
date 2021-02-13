@@ -7,6 +7,7 @@ import type { RequestBody, Settings } from '@squared-functions/types/lib/node';
 
 import type { IRoute } from 'express';
 import type { CorsOptions } from 'cors';
+import type * as Node_7z from 'node-7z';
 
 import path = require('path');
 import fs = require('fs-extra');
@@ -18,7 +19,7 @@ import request = require('request');
 import mime = require('mime-types');
 import uuid = require('uuid');
 import archiver = require('archiver');
-import _7z = require('node-7z');
+import decompress = require('decompress');
 import yaml = require('js-yaml');
 import chalk = require('chalk');
 
@@ -65,10 +66,15 @@ interface Route extends Partial<RouteHandler> {
     image?: string;
 }
 
+interface FileData {
+    filename: string;
+    uri: string;
+}
+
 type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
 
 const JSON_CACHE: ObjectMap<PlainObject> = {};
-const BLOB_CACHE: ObjectMap<{ filename: string; uri: string }> = {};
+const BLOB_CACHE: ObjectMap<FileData> = {};
 
 const app = express();
 app.use(body_parser.urlencoded({ extended: true }));
@@ -82,6 +88,7 @@ let settings: ServeSettings = {},
     cloudModule: Undef<CloudModule>,
     compressModule: Undef<ICompressModule>,
     permission: Undef<IPermission>,
+    prog7z: Undef<typeof Node_7z>,
     path7za: Undef<string>,
     watchInterval: Undef<number>;
 
@@ -158,14 +165,17 @@ function applySettings(this: IFileManager) {
 
 function writeFail(name: string, hint = '', err?: Null<Error>) {
     switch (name) {
-        case '7z':
-            Module.formatMessage(Module.logType.SYSTEM, 'ARCHIVE', ['Install required? <npm i 7zip-bin>', '7z'], 'Binary not found', { titleColor: 'yellow' });
-            break;
         case 'archive':
             Module.writeFail(['Unable to create archive', hint], err);
             break;
         case 'download':
             Module.writeFail(['Unable to download file', hint], err);
+            break;
+        case 'decompress':
+            Module.writeFail(['Unable to decompress file', hint], err);
+            break;
+        case '7z':
+            Module.formatMessage(Module.logType.SYSTEM, 'ARCHIVE', ['Install required? <npm i 7zip-bin>', '7z'], 'Binary not found', { titleColor: 'yellow' });
             break;
     }
 }
@@ -285,6 +295,7 @@ function parseErrors(errors: string[]) {
 
     if (compressModule) {
         try {
+            prog7z = require('node-7z');
             const bin = compressModule['7za_bin'];
             if (bin && fs.existsSync(bin)) {
                 path7za = bin;
@@ -755,7 +766,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
     }
     switch (format) {
         case '7z':
-            if (path7za) {
+            if (prog7z && path7za) {
                 use7z = true;
             }
             else {
@@ -829,7 +840,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                         archive.finalize();
                     }
                     else {
-                        _7z.add(zippath, dirname + path.sep + '*', { $bin: path7za, recursive: true })
+                        prog7z!.add(zippath, dirname + path.sep + '*', { $bin: path7za, recursive: true })
                             .on('end', () => complete(FileManager.getFileSize(zippath)))
                             .on('error', err => writeFail('archive', format, err));
                     }
@@ -845,70 +856,73 @@ app.post('/api/v1/assets/archive', (req, res) => {
         }
     };
     if (append_to) {
-        if (path7za) {
-            const match = /([^/\\]+)\.\w+?$/i.exec(append_to);
-            if (match) {
-                const zippath = path.join(dirname_zip, match[0]);
-                const extractFull = () => {
-                    _7z.extractFull(zippath, dirname, { $bin: path7za, recursive: true })
-                        .on('end', () => {
-                            resumeThread(match[1]);
-                        })
+        const match = /([^/\\]+)\.(\w+?)$/.exec(append_to);
+        if (match && (prog7z && path7za || /zip|tar|gz|bz|bz2|bzip2/i.test(match[2]))) {
+            const zippath = path.join(dirname_zip, match[0]);
+            const extractFull = () => {
+                if (prog7z && path7za) {
+                    prog7z.extractFull(zippath, dirname, { $bin: path7za, recursive: true })
+                        .on('end', () => resumeThread(match[1]))
                         .on('error', err => {
-                            Module.writeFail(['Unable to decompress file', zippath], err);
+                            writeFail('decompress', match[0], err);
                             resumeThread();
                         });
-                };
-                try {
-                    if (FileManager.isFileHTTP(append_to)) {
-                        const stream = fs.createWriteStream(zippath);
-                        stream.on('finish', extractFull);
-                        let error: Undef<boolean>;
-                        request(append_to)
-                            .on('response', response => {
-                                const statusCode = response.statusCode;
-                                if (statusCode >= 300) {
-                                    writeFail('download', append_to, new Error(statusCode + ' ' + response.statusMessage));
-                                    error = true;
-                                }
-                            })
-                            .on('error', err => {
-                                if (!error) {
-                                    writeFail('download', append_to, err);
-                                }
-                                resumeThread();
-                            })
-                            .pipe(stream);
+                }
+                else {
+                    decompress(zippath, dirname)
+                        .then(() => resumeThread(match[1]))
+                        .catch(err => {
+                            writeFail('decompress', match[0], err);
+                            resumeThread();
+                        });
+                }
+            };
+            try {
+                if (FileManager.isFileHTTP(append_to)) {
+                    const stream = fs.createWriteStream(zippath);
+                    stream.on('finish', extractFull);
+                    let error: Undef<boolean>;
+                    request(append_to)
+                        .on('response', response => {
+                            const statusCode = response.statusCode;
+                            if (statusCode >= 300) {
+                                writeFail('download', append_to, new Error(statusCode + ' ' + response.statusMessage));
+                                error = true;
+                            }
+                        })
+                        .on('error', err => {
+                            if (!error) {
+                                writeFail('download', append_to, err);
+                            }
+                            resumeThread();
+                        })
+                        .pipe(stream);
+                    return;
+                }
+                else if (fs.existsSync(append_to = FileManager.resolveUri(append_to))) {
+                    if (FileManager.isFileUNC(append_to)) {
+                        if (!permission || !permission.hasUNCRead()) {
+                            res.json(FileManager.responseError('OPTION: --unc-read', 'Reading from UNC shares is not enabled.'));
+                        }
+                        else {
+                            fs.copyFile(append_to, zippath, extractFull);
+                        }
                         return;
                     }
-                    else if (fs.existsSync(append_to = FileManager.resolveUri(append_to))) {
-                        if (FileManager.isFileUNC(append_to)) {
-                            if (!permission || !permission.hasUNCRead()) {
-                                res.json(FileManager.responseError('OPTION: --unc-read', 'Reading from UNC shares is not enabled.'));
-                            }
-                            else {
-                                fs.copyFile(append_to, zippath, extractFull);
-                            }
-                            return;
+                    else if (path.isAbsolute(append_to)) {
+                        if (!permission || !permission.hasDiskRead()) {
+                            res.json(FileManager.responseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
                         }
-                        else if (path.isAbsolute(append_to)) {
-                            if (!permission || !permission.hasDiskRead()) {
-                                res.json(FileManager.responseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
-                            }
-                            else {
-                                fs.copyFile(append_to, zippath, extractFull);
-                            }
-                            return;
+                        else {
+                            fs.copyFile(append_to, zippath, extractFull);
                         }
+                        return;
                     }
-                    Module.writeFail('Archive not found', new Error(append_to));
                 }
-                catch (err) {
-                    Module.writeFail(zippath, err);
-                }
+                Module.writeFail('Archive not found', new Error(append_to));
             }
-            else {
-                Module.writeFail('Invalid archive format', new Error(append_to));
+            catch (err) {
+                Module.writeFail(zippath, err);
             }
         }
         else {
@@ -922,7 +936,6 @@ app.get('/api/v1/loader/data/json', (req, res) => {
     let uri = req.query.key as string;
     const cache = req.query.cache === '1';
     if (uri) {
-        let valid = true;
         const loadContent = (message: unknown, body: string) => {
             let data: Undef<string | object>;
             if (!message) {
@@ -964,21 +977,10 @@ app.get('/api/v1/loader/data/json', (req, res) => {
         else if (FileManager.isFileHTTP(uri)) {
             request(uri, (err, response) => loadContent(err, response.body));
         }
-        else if (permission && fs.existsSync(uri = FileManager.resolveUri(uri))) {
-            if (FileManager.isFileUNC(uri)) {
-                valid = permission.hasUNCRead();
-            }
-            else {
-                valid = permission.hasDiskRead();
-            }
-            if (valid) {
-                fs.readFile(uri, 'utf8', (err, data) => loadContent(err, data));
-            }
+        else if (permission && fs.existsSync(uri = FileManager.resolveUri(uri)) && (FileManager.isFileUNC(uri) ? permission.hasUNCRead() : permission.hasDiskRead())) {
+            fs.readFile(uri, 'utf8', (err, data) => loadContent(err, data));
         }
         else {
-            valid = false;
-        }
-        if (!valid) {
             res.json(FileManager.responseError('FILE: Unknown', uri));
         }
     }
