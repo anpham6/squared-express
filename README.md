@@ -1,4 +1,4 @@
-## squared-express 0.4
+## squared-express 0.5
 
 ```xml
 <!-- NOTE: cd ./dist -->

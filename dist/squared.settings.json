@@ -106,13 +106,13 @@
           },
           "terser": {
             "minify": {
-              "toplevel": true,
+              "toplevel": false,
               "sourceMap": false
             }
           },
           "uglify-js": {
             "es5-minify": {
-              "toplevel": true
+              "toplevel": false
             }
           },
           "rollup": {
