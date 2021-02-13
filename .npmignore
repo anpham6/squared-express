@@ -6,5 +6,6 @@ tmp/
 .eslint*
 .git*
 *.code-workspace
+gulp*
 rollup*
 tsconfig.*

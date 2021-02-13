@@ -1,6 +1,6 @@
 {
   "name": "squared-express",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Express server for use with squared.",
   "main": "dist/serve.js",
   "scripts": {
@@ -26,7 +26,7 @@
   "license": "MIT",
   "homepage": "https://github.com/anpham6/squared-express#readme",
   "dependencies": {
-    "@squared-functions/file-manager": "^0.13.2",
+    "@squared-functions/file-manager": "^0.13.3",
     "archiver": "^5.2.0",
     "chalk": "^4.1.0",
     "cors": "^2.8.5",

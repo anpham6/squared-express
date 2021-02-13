@@ -3,5 +3,5 @@ debug/
 node_modules/
 tmp/
 *.code-workspace
-gulpfile.js
+gulp*
 package-lock.json
