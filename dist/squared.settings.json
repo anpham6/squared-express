@@ -124,6 +124,15 @@
               }
             }
           }
+        },
+        "view": {
+          "ejs": {
+            "name": "ejs",
+            "compile": {
+              "rmWhitespace": false
+            },
+            "output": {}
+          }
         }
       }
     }
