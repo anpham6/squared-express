@@ -77,7 +77,7 @@ Simple routing and also middleware can be loaded using locally evaluated functio
 https://expressjs.com/en/guide/routing.html
 
 ```javascript
-// squared.settings.[json|yml]
+// squared.settings.[json|yml|toml]
 
 {
   "routing": {
@@ -241,6 +241,8 @@ POST: "/api/v1/assets/archive?format={zip|7z|gz|tar}&filename=[no_ext]&to=[disk_
 POST: "/api/v1/assets/copy?to={disk_uri}&empty=[0|1|2]" // target directory (1=sub|2=base)
 
 GET: "/api/v1/loader/data/json?key={id}&cache=[0|1]" // squared 2.3.0 <ResponseData>
+GET: "/api/v1/loader/data/json?key={id}&cache=[0|1]&mime=[json|yaml|toml]" // squared 2.5.0 <ResponseData>
+
 GET: "/api/v1/loader/data/blob?key={id}&cache=[0|1]" // squared 2.3.0 <Blob>
 GET: "/api/v1/loader/data/text?key={id}&cache=[0|1]"
 GET: "/api/v1/loader/data/document?key={id}&cache=[0|1]"

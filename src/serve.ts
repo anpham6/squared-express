@@ -21,6 +21,7 @@ import uuid = require('uuid');
 import archiver = require('archiver');
 import decompress = require('decompress');
 import yaml = require('js-yaml');
+import toml = require('toml');
 import chalk = require('chalk');
 
 import FileManager = require('@squared-functions/file-manager');
@@ -72,6 +73,7 @@ interface FileData {
 }
 
 type RouteHandler = { [K in keyof Omit<IRoute, "path" | "stack"> | "connect" | "propfind" | "proppatch"]: string };
+type CallbackResponse = FunctionType<Promise<string> | string>;
 
 const JSON_CACHE: ObjectMap<PlainObject> = {};
 const BLOB_CACHE: ObjectMap<FileData> = {};
@@ -253,7 +255,15 @@ function parseErrors(errors: string[]) {
 
     let { NODE_ENV: ENV, PORT } = process.env;
     try {
-        settings = fs.existsSync('./squared.settings.yml') && yaml.load(fs.readFileSync(path.resolve('./squared.settings.yml'), 'utf8')) as ServeSettings || require('./squared.settings.json');
+        if (fs.existsSync('./squared.settings.yml')) {
+            settings = yaml.load(fs.readFileSync(path.resolve('./squared.settings.yml'), 'utf8')) as ServeSettings;
+        }
+        else if (fs.existsSync('./squared.settings.toml')) {
+            settings = toml.parse(fs.readFileSync(path.resolve('./squared.settings.toml'), 'utf8')) as ServeSettings;
+        }
+        else {
+            settings = require('./squared.settings.json');
+        }
         ({ document: documentModule, task: taskModule, compress: compressModule, cloud: cloudModule } = settings);
     }
     catch (err) {
@@ -598,7 +608,7 @@ function parseErrors(errors: string[]) {
                             if (typeof handler === 'string') {
                                 handler = [handler];
                             }
-                            let callback: FunctionType<string>[] | FunctionType<string> = [];
+                            let callback: CallbackResponse[] | CallbackResponse = [];
                             for (const content of handler) {
                                 const method = FileManager.parseFunction(content, 'express');
                                 if (method) {
@@ -940,14 +950,25 @@ app.get('/api/v1/loader/data/json', (req, res) => {
             let data: Undef<string | object>;
             if (!message) {
                 try {
-                    switch (path.extname(uri).toLowerCase()) {
-                        case '.json':
+                    let mime = req.query.mime;
+                    if (mime) {
+                        mime = '.' + mime;
+                    }
+                    switch ((mime || path.extname(uri)).toLowerCase()) {
                         case '.js':
+                        case '.mjs':
+                        case '.json':
+                        case '.jsonp':
+                        case '.jsonld':
+                        case '.map':
                             data = JSON.parse(body);
                             break;
                         case '.yml':
                         case '.yaml':
                             data = yaml.load(body) as object;
+                            break;
+                        case '.toml':
+                            data = toml.parse(body);
                             break;
                     }
                 }
