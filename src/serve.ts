@@ -57,6 +57,7 @@ interface YargsArgv {
     port?: number;
     cors?: string;
     routing?: string;
+    silent?: boolean;
 }
 
 interface Route extends Partial<RouteHandler> {
@@ -242,6 +243,11 @@ function parseErrors(errors: string[]) {
             type: 'string',
             description: 'Additional routing namespaces',
             nargs: 1
+        })
+        .option('silent', {
+            alias: 's',
+            type: 'boolean',
+            description: 'Suppress all console messages'
         })
         .epilogue('For more information and source: https://github.com/anpham6/squared-express')
         .argv as YargsArgv;
@@ -656,7 +662,13 @@ function parseErrors(errors: string[]) {
         Module.writeFail('Routing not defined');
     }
 
-    FileManager.loadSettings(settings);
+    if (settings.logger && argv.silent) {
+        const logger = settings.logger;
+        for (const attr in logger) {
+            logger[attr] = false;
+        }
+    }
+
     permission = FileManager.getPermission(settings);
 
     Module.formatMessage(Module.logType.SYSTEM, 'DISK', (permission.hasDiskRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (permission.hasDiskWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
@@ -694,6 +706,7 @@ function parseErrors(errors: string[]) {
         console.log('');
         Module.formatMessage(Module.logType.SYSTEM, ENV!.toUpperCase(), 'Express server listening on port ' + chalk.bold(PORT), '', { titleColor: ENV!.startsWith('prod') ? 'green' : 'yellow' });
         console.log('');
+        FileManager.loadSettings(settings);
     });
     process.env.NODE_ENV = ENV;
     process.env.PORT = PORT;
