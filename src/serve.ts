@@ -98,18 +98,11 @@ function installModules(this: IFileManager, query: StringMap, body: RequestBody)
     const { document, task } = body;
     if (documentModule && document) {
         for (const name of document) {
-            const module = documentModule[name];
-            if (module && module.handler) {
+            const item = documentModule[name];
+            if (item?.handler) {
                 try {
-                    const instance = require(module.handler);
-                    switch (name) {
-                        case 'chrome':
-                            this.install('document', instance, module, query.release === '1');
-                            break;
-                        default:
-                            this.install('document', instance, module);
-                            break;
-                    }
+                    const instance = require(item.handler);
+                    this.install('document', instance, item);
                 }
                 catch (err) {
                     Module.writeFail(['Unable to load Document handler', name], err);
@@ -119,11 +112,11 @@ function installModules(this: IFileManager, query: StringMap, body: RequestBody)
     }
     if (taskModule && task) {
         for (const name of task) {
-            const module = taskModule[name];
-            if (module && module.handler && module.settings) {
+            const item = taskModule[name];
+            if (item?.handler && item.settings) {
                 try {
-                    const instance = require(module.handler);
-                    this.install('task', instance, module);
+                    const instance = require(item.handler);
+                    this.install('task', instance, item);
                 }
                 catch (err) {
                     Module.writeFail(['Unable to load Task handler', name], err);
@@ -950,24 +943,22 @@ app.get('/api/v1/loader/data/json', (req, res) => {
             let data: Undef<string | object>;
             if (!message) {
                 try {
-                    let mime = req.query.mime;
-                    if (mime) {
-                        mime = '.' + mime;
-                    }
-                    switch ((mime || path.extname(uri)).toLowerCase()) {
-                        case '.js':
-                        case '.mjs':
-                        case '.json':
-                        case '.jsonp':
-                        case '.jsonld':
-                        case '.map':
+                    const mimeType = req.query.mime as Undef<string>;
+                    switch ((mimeType && mimeType.split('/').pop() || path.extname(uri).substring(1)).toLowerCase()) {
+                        case 'json':
+                        case 'jsonp':
+                        case 'jsonld':
+                        case 'javascript':
+                        case 'js':
+                        case 'mjs':
+                        case 'map':
                             data = JSON.parse(body);
                             break;
-                        case '.yml':
-                        case '.yaml':
+                        case 'yml':
+                        case 'yaml':
                             data = yaml.load(body) as object;
                             break;
-                        case '.toml':
+                        case 'toml':
                             data = toml.parse(body);
                             break;
                     }
