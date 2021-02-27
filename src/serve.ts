@@ -34,7 +34,13 @@ interface ServeSettings extends Settings {
     routing?: RoutingModule;
     cors?: CorsOptions;
     request_post_limit?: string;
+    watch?: WatchModule;
     compress?: CompressModule;
+}
+
+interface WatchModule {
+    interval?: number;
+    port?: number;
 }
 
 interface RoutingModule {
@@ -91,9 +97,9 @@ let settings: ServeSettings = {},
     cloudModule: Undef<CloudModule>,
     compressModule: Undef<ICompressModule>,
     permission: Undef<IPermission>,
+    watchModule: Undef<WatchModule>,
     prog7z: Undef<typeof Node_7z>,
-    path7za: Undef<string>,
-    watchInterval: Undef<number>;
+    path7za: Undef<string>;
 
 function installModules(this: IFileManager, query: StringMap, body: RequestBody) {
     const { document, task } = body;
@@ -135,7 +141,12 @@ function installModules(this: IFileManager, query: StringMap, body: RequestBody)
         this.install('cloud', cloudModule);
     }
     if (query.watch === '1') {
-        this.install('watch', watchInterval);
+        if (watchModule) {
+            this.install('watch', watchModule.interval, watchModule.port);
+        }
+        else {
+            this.install('watch');
+        }
     }
 }
 
@@ -263,7 +274,7 @@ function parseErrors(errors: string[]) {
         else {
             settings = require('./squared.settings.json');
         }
-        ({ document: documentModule, task: taskModule, compress: compressModule, cloud: cloudModule } = settings);
+        ({ document: documentModule, task: taskModule, compress: compressModule, cloud: cloudModule, watch: watchModule } = settings);
     }
     catch (err) {
         Module.writeFail(['Unable to load Settings file', 'squared'], err);

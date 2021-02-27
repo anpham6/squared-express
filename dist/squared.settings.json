@@ -142,7 +142,8 @@
     "webp": ""
   },
   "watch": {
-    "interval": 200
+    "interval": 200,
+    "port": 8080
   },
   "cloud": {
     "cache": {
