@@ -1,6 +1,6 @@
 import type { ResponseData } from '@squared-functions/types/lib/squared';
 
-import type { DocumentConstructor, IFileManager, IPermission, ImageConstructor } from '@squared-functions/types';
+import type { DocumentConstructor, IFileManager, IPermission, IWatch, ImageConstructor } from '@squared-functions/types';
 import type { SourceMap, SourceMapOutput, TransformOutput } from '@squared-functions/types/lib/document';
 import type { CloudModule, CompressModule, DocumentModule, TaskModule } from '@squared-functions/types/lib/module';
 import type { RequestBody, Settings } from '@squared-functions/types/lib/node';
@@ -41,6 +41,11 @@ interface ServeSettings extends Settings {
 interface WatchModule {
     interval?: number;
     port?: number;
+    secure?: {
+        port?: number;
+        ssl_key?: string;
+        ssl_cert?: string;
+    };
 }
 
 interface RoutingModule {
@@ -142,7 +147,17 @@ function installModules(this: IFileManager, query: StringMap, body: RequestBody)
     }
     if (query.watch === '1') {
         if (watchModule) {
-            this.install('watch', watchModule.interval, watchModule.port);
+            const watch = this.install('watch', watchModule.interval, watchModule.port) as Undef<IWatch>;
+            if (watch && watchModule.secure) {
+                const { port, ssl_key, ssl_cert } = watchModule.secure;
+                if (port) {
+                    watch.securePort = port;
+                }
+                if (ssl_key && ssl_cert) {
+                    watch.setSSLKey(ssl_key);
+                    watch.setSSLCert(ssl_cert);
+                }
+            }
         }
         else {
             this.install('watch');

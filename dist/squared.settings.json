@@ -143,7 +143,12 @@
   },
   "watch": {
     "interval": 200,
-    "port": 8080
+    "port": 80,
+    "secure": {
+      "port": 443,
+      "ssl_key": "",
+      "ssl_cert": ""
+    }
   },
   "cloud": {
     "cache": {
