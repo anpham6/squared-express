@@ -46,92 +46,124 @@
       "eval_function": true,
       "eval_template": false,
       "settings": {
-        "html": {
-          "posthtml": {
-            "transform": {
-              "plugins": []
+        "transform": {
+          "html": {
+            "posthtml": {
+              "transform": {
+                "plugins": []
+              },
+              "transform-output": {}
             },
-            "transform-output": {}
-          },
-          "prettier": {
-            "beautify": {
-              "parser": "html",
-              "printWidth": 120,
-              "tabWidth": 4
+            "prettier": {
+              "beautify": {
+                "parser": "html",
+                "printWidth": 120,
+                "tabWidth": 4
+              }
+            },
+            "html-minifier-terser": {
+              "minify": {
+                "collapseWhitespace": true,
+                "collapseBooleanAttributes": true,
+                "removeEmptyAttributes": true,
+                "removeRedundantAttributes": true,
+                "removeScriptTypeAttributes": true,
+                "removeStyleLinkTypeAttributes": true,
+                "removeComments": true
+              }
             }
           },
-          "html-minifier-terser": {
-            "minify": {
-              "collapseWhitespace": true,
-              "collapseBooleanAttributes": true,
-              "removeEmptyAttributes": true,
-              "removeRedundantAttributes": true,
-              "removeScriptTypeAttributes": true,
-              "removeStyleLinkTypeAttributes": true,
-              "removeComments": true
-            }
-          }
-        },
-        "css": {
-          "postcss": {
-            "transform": {
-              "plugins": []
-            }
-          },
-          "prettier": {
-            "beautify": {
-              "parser": "css",
-              "tabWidth": 4
+          "css": {
+            "postcss": {
+              "transform": {
+                "plugins": []
+              }
+            },
+            "prettier": {
+              "beautify": {
+                "parser": "css",
+                "tabWidth": 4
+              }
+            },
+            "clean-css": {
+              "minify": {
+                "inline": ["none"],
+                "level": 1
+              }
             }
           },
-          "clean-css": {
-            "minify": {
-              "inline": ["none"],
-              "level": 1
-            }
-          }
-        },
-        "js": {
-          "@babel/core": {
-            "es5": {
-              "presets": ["@babel/preset-env"]
-            }
-          },
-          "prettier": {
-            "beautify": {
-              "parser": "babel",
-              "printWidth": 120,
-              "tabWidth": 4
-            }
-          },
-          "terser": {
-            "minify": {
-              "toplevel": false,
-              "sourceMap": false
-            }
-          },
-          "uglify-js": {
-            "es5-minify": {
-              "toplevel": false
-            }
-          },
-          "rollup": {
-            "bundle": {
-              "treeshake": false,
-              "external": [],
-              "output": {
-                "sourcemap": false
+          "js": {
+            "@babel/core": {
+              "es5": {
+                "presets": ["@babel/preset-env"]
+              }
+            },
+            "prettier": {
+              "beautify": {
+                "parser": "babel",
+                "printWidth": 120,
+                "tabWidth": 4
+              }
+            },
+            "terser": {
+              "minify": {
+                "toplevel": false,
+                "sourceMap": false
+              }
+            },
+            "uglify-js": {
+              "es5-minify": {
+                "toplevel": false
+              }
+            },
+            "rollup": {
+              "bundle": {
+                "treeshake": false,
+                "external": [],
+                "output": {
+                  "sourcemap": false
+                }
               }
             }
           }
         },
-        "view": {
+        "view_engine": {
           "ejs": {
             "name": "ejs",
             "compile": {
               "rmWhitespace": false
             },
             "output": {}
+          }
+        },
+        "mongodb": {
+          "scram-sha-1": {
+            "user": "",
+            "pwd": "",
+            "server": "localhost:27017",
+            "authMechanism": "SCRAM-SHA-1",
+            "authSource": ""
+          },
+          "x509": {
+            "user": "",
+            "pwd": "",
+            "server": "localhost:27017",
+            "authMechanism": "MONGODB-X509",
+            "sslKey": "",
+            "sslCert": "",
+            "sslValidate": false
+          },
+          "kerberos": {
+            "user": "",
+            "server": "",
+            "authMechanism": "GSSAPI"
+          },
+          "ldap": {
+            "user": "",
+            "pwd": "",
+            "server": "",
+            "authMechanism": "PLAIN",
+            "maxPoolSize": 1
           }
         }
       }
