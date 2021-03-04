@@ -13,6 +13,7 @@ module.exports = {
     "ignorePatterns": [],
     "rules": {
         "no-console": "off",
+        "no-inner-declarations": "off",
         "@typescript-eslint/ban-types": "off",
         "@typescript-eslint/no-misused-promises": "off",
         "@typescript-eslint/no-unnecessary-type-arguments": "off",

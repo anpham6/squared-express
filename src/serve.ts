@@ -907,77 +907,85 @@ app.post('/api/v1/assets/archive', (req, res) => {
         }
     };
     if (append_to) {
-        const match = /([^/\\]+)\.(\w+?)$/.exec(append_to);
-        if (match && (prog7z && path7za || /zip|tar|gz|bz|bz2|bzip2/i.test(match[2]))) {
-            const zippath = path.join(dirname_zip, match[0]);
-            const extractFull = () => {
-                if (prog7z && path7za) {
-                    prog7z.extractFull(zippath, dirname, { $bin: path7za, recursive: true })
-                        .on('end', () => resumeThread(match[1]))
-                        .on('error', err => {
-                            writeFail('decompress', match[0], err);
-                            resumeThread();
-                        });
+        const filename = path.basename(append_to);
+        const ext = path.extname(filename).substring(1);
+        const zipname = filename.substring(0, filename.length - (ext.length + 1));
+        const zippath = path.join(dirname_zip, filename);
+        async function extractFull() {
+            let files: Undef<decompress.File[]> = [];
+            if (ext !== '7z') {
+                try {
+                    files = await decompress(zippath, dirname);
                 }
-                else {
-                    decompress(zippath, dirname)
-                        .then(() => resumeThread(match[1]))
-                        .catch(err => {
-                            writeFail('decompress', match[0], err);
-                            resumeThread();
-                        });
-                }
-            };
-            try {
-                if (FileManager.isFileHTTP(append_to)) {
-                    const stream = fs.createWriteStream(zippath);
-                    stream.on('finish', extractFull);
-                    let error: Undef<boolean>;
-                    request(append_to)
-                        .on('response', response => {
-                            const statusCode = response.statusCode;
-                            if (statusCode >= 300) {
-                                writeFail('download', append_to, new Error(statusCode + ' ' + response.statusMessage));
-                                error = true;
-                            }
-                        })
-                        .on('error', err => {
-                            if (!error) {
-                                writeFail('download', append_to, err);
-                            }
-                            resumeThread();
-                        })
-                        .pipe(stream);
-                    return;
-                }
-                else if (fs.existsSync(append_to = FileManager.resolveUri(append_to))) {
-                    if (FileManager.isFileUNC(append_to)) {
-                        if (!permission || !permission.hasUNCRead()) {
-                            res.json(FileManager.responseError('OPTION: --unc-read', 'Reading from UNC shares is not enabled.'));
-                        }
-                        else {
-                            fs.copyFile(append_to, zippath, extractFull);
-                        }
-                        return;
-                    }
-                    else if (path.isAbsolute(append_to)) {
-                        if (!permission || !permission.hasDiskRead()) {
-                            res.json(FileManager.responseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
-                        }
-                        else {
-                            fs.copyFile(append_to, zippath, extractFull);
-                        }
-                        return;
+                catch (err) {
+                    if (!path7za) {
+                        writeFail('decompress', filename, err);
                     }
                 }
-                Module.writeFail('Archive not found', new Error(append_to));
             }
-            catch (err) {
-                Module.writeFail(zippath, err);
+            if (files.length) {
+                resumeThread(zipname);
+            }
+            else if (prog7z && path7za) {
+                prog7z.extractFull(zippath, dirname, { $bin: path7za, recursive: true })
+                    .on('end', () => resumeThread(zipname))
+                    .on('error', err => {
+                        writeFail('decompress', filename, err);
+                        resumeThread();
+                    });
+            }
+            else {
+                writeFail('decompress', filename, new Error('Unsupported format: ' + ext));
+                resumeThread();
             }
         }
-        else {
-            writeFail('7z');
+        try {
+            if (FileManager.isFileHTTP(append_to)) {
+                const stream = fs.createWriteStream(zippath);
+                stream.on('finish', () => {
+                    extractFull();
+                });
+                request(append_to)
+                    .on('response', response => {
+                        if (response.statusCode >= 300) {
+                            writeFail('download', append_to, new Error(response.statusCode + ': ' + response.statusMessage));
+                        }
+                    })
+                    .on('error', err => {
+                        writeFail('download', append_to, err);
+                        resumeThread();
+                    })
+                    .pipe(stream);
+                return;
+            }
+            else if (fs.existsSync(append_to = FileManager.resolveUri(append_to))) {
+                if (FileManager.isFileUNC(append_to)) {
+                    if (!permission || !permission.hasUNCRead()) {
+                        res.json(FileManager.responseError('OPTION: --unc-read', 'Reading from UNC shares is not enabled.'));
+                    }
+                    else {
+                        fs.copyFile(append_to, zippath, () => {
+                            extractFull();
+                        });
+                    }
+                    return;
+                }
+                else if (path.isAbsolute(append_to)) {
+                    if (!permission || !permission.hasDiskRead()) {
+                        res.json(FileManager.responseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
+                    }
+                    else {
+                        fs.copyFile(append_to, zippath, () => {
+                            extractFull();
+                        });
+                    }
+                    return;
+                }
+            }
+            Module.writeFail('Archive not found', new Error(append_to));
+        }
+        catch (err) {
+            Module.writeFail(zippath, err);
         }
     }
     resumeThread();
