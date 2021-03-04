@@ -33,7 +33,7 @@ interface ServeSettings extends Settings {
     port?: StringMap;
     routing?: RoutingModule;
     cors?: CorsOptions;
-    request_post_limit?: string;
+    request?: RequestModule;
     watch?: WatchModule;
     compress?: CompressModule;
 }
@@ -46,6 +46,11 @@ interface WatchModule {
         ssl_key?: string;
         ssl_cert?: string;
     };
+}
+
+interface RequestModule {
+    cache?: boolean;
+    post_limit?: string;
 }
 
 interface RoutingModule {
@@ -97,12 +102,13 @@ const Module = FileManager.moduleCompress();
 const imageMap = new Map<string, ImageConstructor>();
 
 let settings: ServeSettings = {},
+    requestModule: Undef<RequestModule>,
     documentModule: Undef<ObjectMap<DocumentModule>>,
     taskModule: Undef<ObjectMap<TaskModule>>,
-    cloudModule: Undef<CloudModule>,
     compressModule: Undef<ICompressModule>,
-    permission: Undef<IPermission>,
+    cloudModule: Undef<CloudModule>,
     watchModule: Undef<WatchModule>,
+    permission: Undef<IPermission>,
     prog7z: Undef<typeof Node_7z>,
     path7za: Undef<string>;
 
@@ -182,6 +188,9 @@ function applySettings(this: IFileManager) {
                 }
             }
         }
+    }
+    if (requestModule?.cache) {
+        this.cacheHttpRequest = true;
     }
 }
 
@@ -289,7 +298,7 @@ function parseErrors(errors: string[]) {
         else {
             settings = require('./squared.settings.json');
         }
-        ({ document: documentModule, task: taskModule, compress: compressModule, cloud: cloudModule, watch: watchModule } = settings);
+        ({ request: requestModule, document: documentModule, task: taskModule, compress: compressModule, cloud: cloudModule, watch: watchModule } = settings);
     }
     catch (err) {
         Module.writeFail(['Unable to load Settings file', 'squared'], err);
@@ -727,7 +736,7 @@ function parseErrors(errors: string[]) {
 
     PORT = +PORT! >= 0 && PORT || '3000';
 
-    app.use(body_parser.json({ limit: settings.request_post_limit || '250mb' }));
+    app.use(body_parser.json({ limit: requestModule?.post_limit || '250mb' }));
     app.listen(PORT, () => {
         console.log('');
         Module.formatMessage(Module.logType.SYSTEM, ENV!.toUpperCase(), 'Express server listening on port ' + chalk.bold(PORT), '', { titleColor: ENV!.startsWith('prod') ? 'green' : 'yellow' });

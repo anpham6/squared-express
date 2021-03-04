@@ -23,7 +23,10 @@
   "cors": {
     "origin": false
   },
-  "request_post_limit": "250mb",
+  "request": {
+    "cache": true,
+    "post_limit": "250mb"
+  },
   "compress": {
     "gzip_level": 9,
     "brotli_quality": 11,
