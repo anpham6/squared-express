@@ -25,10 +25,11 @@ import toml = require('toml');
 import chalk = require('chalk');
 
 import FileManager = require('@squared-functions/file-manager');
+import Permission = require('@squared-functions/file-manager/permission')
 import Document = require('@squared-functions/document');
 import Image = require('@squared-functions/image');
 
-interface ServeSettings extends Settings {
+interface ServeSettings extends Settings, PermissionModule {
     env?: string;
     port?: StringMap;
     routing?: RoutingModule;
@@ -51,6 +52,13 @@ interface WatchModule {
 interface RequestModule {
     cache?: boolean;
     post_limit?: string;
+}
+
+interface PermissionModule {
+    disk_read?: boolean;
+    disk_write?: boolean;
+    unc_read?: boolean;
+    unc_write?: boolean;
 }
 
 interface RoutingModule {
@@ -171,8 +179,23 @@ function installModules(this: IFileManager, query: StringMap, body: RequestBody)
     }
 }
 
+function applyPermissions(this: IPermission) {
+    if (settings.disk_read) {
+        this.setDiskRead();
+    }
+    if (settings.disk_write) {
+        this.setDiskWrite();
+    }
+    if (settings.unc_read) {
+        this.setUNCRead();
+    }
+    if (settings.unc_write) {
+        this.setUNCWrite();
+    }
+}
+
 function applySettings(this: IFileManager) {
-    const apiKey = settings.compress?.tinify_api_key;
+    const apiKey = compressModule?.tinify_api_key;
     if (apiKey) {
         for (const asset of this.assets) {
             if (asset.compress) {
@@ -192,6 +215,40 @@ function applySettings(this: IFileManager) {
     if (requestModule?.cache) {
         this.cacheHttpRequest = true;
     }
+    applyPermissions.call(this.permission);
+}
+
+function getResponseError(err: Error | string, hint?: string) {
+    return {
+        success: false,
+        error: {
+            hint,
+            message: err instanceof Error ? err.message : err ? err.toString() : ''
+        }
+    } as ResponseData;
+}
+
+function hasDirectoryWrite(dirname: string, localPermission: IPermission) {
+    if (FileManager.isDirectoryUNC(dirname)) {
+        if (!localPermission.hasUNCWrite()) {
+            return getResponseError('Writing to UNC shares is not enabled.', 'NODE: --unc-write');
+        }
+    }
+    else if (!localPermission.hasDiskWrite()) {
+        return getResponseError('Writing to disk is not enabled.', 'NODE: --disk-write');
+    }
+    try {
+        if (!fs.existsSync(dirname)) {
+            fs.mkdirpSync(dirname);
+        }
+        else if (!fs.lstatSync(dirname).isDirectory()) {
+            throw new Error('Target is not a directory.');
+        }
+    }
+    catch (err) {
+        return getResponseError(err, 'DIRECTORY: ' + dirname);
+    }
+    return true;
 }
 
 function writeFail(name: string, hint = '', err?: Null<Error>) {
@@ -704,7 +761,7 @@ function parseErrors(errors: string[]) {
         }
     }
 
-    permission = FileManager.getPermission(settings);
+    applyPermissions.call(permission = new Permission());
 
     Module.formatMessage(Module.logType.SYSTEM, 'DISK', (permission.hasDiskRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (permission.hasDiskWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
     Module.formatMessage(Module.logType.SYSTEM, 'UNC', (permission.hasUNCRead() ? chalk.green('+') : chalk.red('-')) + 'r ' + (permission.hasUNCWrite() ? chalk.green('+') : chalk.red('-')) + 'w', '', { titleColor: 'blue' });
@@ -747,11 +804,12 @@ function parseErrors(errors: string[]) {
     process.env.PORT = PORT;
 }
 
+
 app.post('/api/v1/assets/copy', (req, res) => {
     const query = req.query;
     const dirname = path.normalize(query.to as string);
     let error: Undef<true | ResponseData>;
-    if (dirname && permission && (error = FileManager.hasPermission(dirname, permission)) === true) {
+    if (dirname && permission && (error = hasDirectoryWrite(dirname, permission)) === true) {
         try {
             if (query.empty === '2') {
                 try {
@@ -773,8 +831,7 @@ app.post('/api/v1/assets/copy', (req, res) => {
                         error: parseErrors(errors)
                     } as ResponseData);
                     manager.formatMessage(Module.logType.NODE, ' WRITE ', [dirname, files.length + ' files']);
-                },
-                settings
+                }
             );
             installModules.call(manager, query as StringMap, body);
             applySettings.call(manager);
@@ -795,7 +852,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
     let dirname = path.join(__dirname, 'tmp', uuid.v4()),
         dirname_zip: string;
     try {
-        if (copy_to && permission && FileManager.hasPermission(dirname, permission) === true) {
+        if (copy_to && permission && hasDirectoryWrite(dirname, permission) === true) {
             dirname = copy_to;
         }
         else {
@@ -895,8 +952,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                             .on('end', () => complete(FileManager.getFileSize(zippath)))
                             .on('error', err => writeFail('archive', format, err));
                     }
-                },
-                settings
+                }
             );
             installModules.call(manager, query as StringMap, body);
             applySettings.call(manager);
