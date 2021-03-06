@@ -2,7 +2,7 @@ import type { ResponseData } from '@squared-functions/types/lib/squared';
 
 import type { DocumentConstructor, IFileManager, IPermission, IWatch, ImageConstructor } from '@squared-functions/types';
 import type { SourceMap, SourceMapOutput, TransformOutput } from '@squared-functions/types/lib/document';
-import type { CloudModule, CompressModule, DocumentModule, TaskModule } from '@squared-functions/types/lib/module';
+import type { CloudModule, DocumentModule, TaskModule } from '@squared-functions/types/lib/module';
 import type { RequestBody, Settings } from '@squared-functions/types/lib/node';
 
 import type { IRoute } from 'express';
@@ -65,7 +65,11 @@ interface RoutingModule {
     [key: string]: Route[];
 }
 
-interface ICompressModule extends CompressModule {
+interface CompressModule {
+    gzip_level?: NumString;
+    brotli_quality?: NumString;
+    chunk_size?: NumString;
+    tinify_api_key?: string;
     "7za_bin"?: string;
 }
 
@@ -113,7 +117,7 @@ let settings: ServeSettings = {},
     requestModule: Undef<RequestModule>,
     documentModule: Undef<ObjectMap<DocumentModule>>,
     taskModule: Undef<ObjectMap<TaskModule>>,
-    compressModule: Undef<ICompressModule>,
+    compressModule: Undef<CompressModule>,
     cloudModule: Undef<CloudModule>,
     watchModule: Undef<WatchModule>,
     permission: Undef<IPermission>,
@@ -180,16 +184,16 @@ function installModules(this: IFileManager, query: StringMap, body: RequestBody)
 }
 
 function applyPermissions(this: IPermission) {
-    if (settings.disk_read) {
+    if (isTrue(settings.disk_read)) {
         this.setDiskRead();
     }
-    if (settings.disk_write) {
+    if (isTrue(settings.disk_write)) {
         this.setDiskWrite();
     }
-    if (settings.unc_read) {
+    if (isTrue(settings.unc_read)) {
         this.setUNCRead();
     }
-    if (settings.unc_write) {
+    if (isTrue(settings.unc_write)) {
         this.setUNCWrite();
     }
 }
@@ -275,6 +279,8 @@ function parseErrors(errors: string[]) {
     }
 }
 
+const isTrue = (value: unknown): value is true => value === true || value === 'true' || +(value as string) === 1;
+
 {
     const argv = yargs
         .usage('$0 [args]')
@@ -356,6 +362,7 @@ function parseErrors(errors: string[]) {
             settings = require('./squared.settings.json');
         }
         ({ request: requestModule, document: documentModule, task: taskModule, compress: compressModule, cloud: cloudModule, watch: watchModule } = settings);
+        FileManager.loadSettings(settings);
     }
     catch (err) {
         Module.writeFail(['Unable to load Settings file', 'squared'], err);
@@ -395,6 +402,19 @@ function parseErrors(errors: string[]) {
     }
 
     if (compressModule) {
+        const { gzip_level, brotli_quality, chunk_size } = compressModule;
+        const gzip = +(gzip_level as string);
+        const brotli = +(brotli_quality as string);
+        const chunkSize = +(chunk_size as string);
+        if (!isNaN(gzip)) {
+            Module.level.gz = gzip;
+        }
+        if (!isNaN(brotli)) {
+            Module.level.br = brotli;
+        }
+        if (!isNaN(chunkSize) && chunkSize > 0 && chunkSize % 1024 === 0) {
+            Module.chunkSize = chunkSize;
+        }
         try {
             prog7z = require('node-7z');
             const bin = compressModule['7za_bin'];
@@ -838,7 +858,7 @@ app.post('/api/v1/assets/copy', (req, res) => {
             manager.processAssets(query.empty === '1');
         }
         catch (err) {
-            res.json(FileManager.responseError('FILE: Unknown', (err as Error).toString()));
+            res.json(getResponseError('FILE: Unknown', (err as Error).toString()));
         }
     }
     else if (error) {
@@ -862,7 +882,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
         fs.mkdirpSync(dirname_zip);
     }
     catch (err) {
-        res.json(FileManager.responseError(`DIRECTORY: ${dirname}`, (err as Error).toString()));
+        res.json(getResponseError(`DIRECTORY: ${dirname}`, (err as Error).toString()));
         return;
     }
     let append_to = query.append_to as string,
@@ -959,7 +979,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
             manager.processAssets();
         }
         catch (err) {
-            res.json(FileManager.responseError('FILE: Unknown', (err as Error).toString()));
+            res.json(getResponseError('FILE: Unknown', (err as Error).toString()));
         }
     };
     if (append_to) {
@@ -1017,7 +1037,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
             else if (fs.existsSync(append_to = FileManager.resolveUri(append_to))) {
                 if (FileManager.isFileUNC(append_to)) {
                     if (!permission || !permission.hasUNCRead()) {
-                        res.json(FileManager.responseError('OPTION: --unc-read', 'Reading from UNC shares is not enabled.'));
+                        res.json(getResponseError('OPTION: --unc-read', 'Reading from UNC shares is not enabled.'));
                     }
                     else {
                         fs.copyFile(append_to, zippath, () => {
@@ -1028,7 +1048,7 @@ app.post('/api/v1/assets/archive', (req, res) => {
                 }
                 else if (path.isAbsolute(append_to)) {
                     if (!permission || !permission.hasDiskRead()) {
-                        res.json(FileManager.responseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
+                        res.json(getResponseError('OPTION: --disk-read', 'Reading from disk is not enabled.'));
                     }
                     else {
                         fs.copyFile(append_to, zippath, () => {
@@ -1086,7 +1106,7 @@ app.get('/api/v1/loader/data/json', (req, res) => {
                 res.json({ success: true, data } as ResponseData);
             }
             else {
-                res.json(FileManager.responseError(message as Error, `FILE: Unable to download (${uri})`));
+                res.json(getResponseError(message as Error, `FILE: Unable to download (${uri})`));
             }
         };
         if (cache && JSON_CACHE[uri] || FileManager.isUUID(uri)) {
@@ -1095,7 +1115,7 @@ app.get('/api/v1/loader/data/json', (req, res) => {
                 res.json({ success: true, data } as ResponseData);
             }
             else {
-                res.json(FileManager.responseError(uri, 'CACHE: Could not locate key'));
+                res.json(getResponseError(uri, 'CACHE: Could not locate key'));
             }
         }
         else if (FileManager.isFileHTTP(uri)) {
@@ -1105,7 +1125,7 @@ app.get('/api/v1/loader/data/json', (req, res) => {
             fs.readFile(uri, 'utf8', (err, data) => loadContent(err, data));
         }
         else {
-            res.json(FileManager.responseError('FILE: Unknown', uri));
+            res.json(getResponseError('FILE: Unknown', uri));
         }
     }
 });

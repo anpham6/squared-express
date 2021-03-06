@@ -1,4 +1,4 @@
-## squared-express 0.5
+## squared-express 0.6
 
 ```xml
 <!-- NOTE: cd ./dist -->
@@ -135,45 +135,49 @@ Text based documents which require a preprocessor before being rendered can have
       { "mount": "../local/html/common/images", "path": "/common/images", "image": "@squared-functions/image/jimp" } // NPM hosted packages only with ImageConstructor interface
     ]
   },
-  "chrome": {
-    "handler": "@squared-functions/document/chrome",
-    "eval_function": true,
-    "settings": {
-      "js": { // query param: "type"
-        "rollup": { // built-in transformer
-          "typescript": { // query param: "format"
-            "output": {
-              "format": "iife"
+  "document": {
+    "chrome": {
+      "handler": "@squared-functions/document/chrome",
+      "eval_function": true,
+      "settings": {
+        "transform": {
+          "js": { // query param: "type"
+            "rollup": { // built-in transformer
+              "typescript": { // query param: "format"
+                "output": {
+                  "format": "iife"
+                },
+                "plugins": [["@rollup/plugin-typescript", { lib: ["es5", "es6", "dom"], target: "es5" }], "rollup-plugin-terser"] // npm i @rollup/plugin-typescript && npm i rollup-plugin-terser
+              },
+              "bundle": {
+                "plugins": ["rollup-plugin-sourcemaps"], // npm i rollup-plugin-sourcemaps
+                "output": {
+                  "format": "iife",
+                  "sourcemap": true
+                }
+              },
+              "bundle-es6": {
+                "plugins": ["rollup-plugin-sourcemaps"],
+                "output": {
+                  "format": "es",
+                  "sourcemap": "inline" // Inline source maps are more reliable
+                }
+              }
+            }
+          },
+          "css": {
+            "sass": { // NPM package name
+              "demo": "function (context, value, options, resolve) { resolve(context.renderSync({ ...options.outputConfig, data: value }, functions: {}).css); }" // Uses Promise callback "resolve"
+              "demo-output": { // function param: "options" (optional)
+                "indentedSyntax": true,
+                "outputStyle": "compressed"
+              }
             },
-            "plugins": [["@rollup/plugin-typescript", { lib: ["es5", "es6", "dom"], target: "es5" }], "rollup-plugin-terser"] // npm i @rollup/plugin-typescript && npm i rollup-plugin-terser
-          },
-          "bundle": {
-            "plugins": ["rollup-plugin-sourcemaps"], // npm i rollup-plugin-sourcemaps
-            "output": {
-              "format": "iife",
-              "sourcemap": true
+            "postcss": { // built-in transformer
+              "demo-2": { // format names are unique per "type"
+                "plugins": ["autoprefixer", "cssnano"] // npm i autoprefixer && npm i cssnano
+              }
             }
-          },
-          "bundle-es6": {
-            "plugins": ["rollup-plugin-sourcemaps"],
-            "output": {
-              "format": "es",
-              "sourcemap": "inline" // Inline source maps are more reliable
-            }
-          }
-        }
-      },
-      "css": {
-        "sass": { // NPM package name
-          "demo": "function (context, value, options, resolve) { resolve(context.renderSync({ ...options.outputConfig, data: value }, functions: {}).css); }" // Uses Promise callback "resolve"
-          "demo-output": { // function param: "options" (optional)
-            "indentedSyntax": true,
-            "outputStyle": "compressed"
-          }
-        },
-        "postcss": { // built-in transformer
-          "demo-2": { // format names are unique per "type"
-            "plugins": ["autoprefixer", "cssnano"] // npm i autoprefixer && npm i cssnano
           }
         }
       }
